@@ -45,5 +45,6 @@ export const COLLECTIONS = {
   SETTINGS: 'settings',
   TARGETED_NOTIFICATIONS: 'targeted_notifications',
   TARGETED_GIFTS: 'targeted_gifts',
-  TARGETED_GIFT_LOGS: 'targeted_gift_logs'
+  TARGETED_GIFT_LOGS: 'targeted_gift_logs',
+  TICKER_TEXTS: 'ticker_texts'
 };
