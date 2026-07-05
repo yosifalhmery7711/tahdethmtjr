@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db, COLLECTIONS } from './firebase';
 import { Database } from './database';
 import { 
   Category, 
@@ -17,6 +19,7 @@ import {
   Currency
 } from './types';
 import Navbar from './components/Navbar';
+import NewsTicker from './components/NewsTicker';
 import HomeTab from './components/HomeTab';
 import CartTab from './components/CartTab';
 import ProfileTab from './components/ProfileTab';
@@ -55,9 +58,21 @@ function checkOtaRedirect(settings: any) {
       window.location.hostname.includes('run.app');
       
     if (!isLocalhost && cleanCurrentOrigin !== cleanDbUrl && !cleanCurrentUrl.startsWith(cleanDbUrl)) {
-      console.log('[OTA Update] Redirecting to new deployment URL:', cleanDbUrl);
+      console.log('[OTA Update] Redirecting to new deployment URL with query parameters:', cleanDbUrl);
       localStorage.setItem('amrwh_current_app_url', cleanDbUrl);
-      window.location.href = currentAppUrlFromDb;
+      
+      // Preserve search parameters (query parameters like ?code=xxx) during OTA redirect
+      const searchParams = window.location.search;
+      let targetUrl = currentAppUrlFromDb;
+      if (searchParams) {
+        if (targetUrl.includes('?')) {
+          targetUrl += '&' + searchParams.substring(1);
+        } else {
+          targetUrl += searchParams;
+        }
+      }
+      
+      window.location.href = targetUrl;
     }
   }
 }
@@ -80,6 +95,31 @@ export default function App() {
   const [offerImages, setOfferImages] = useState<string[]>(Database.getOffersImages());
   const [adminCode, setAdminCode] = useState<string>(Database.getAdminCode());
   const [shuffledProducts, setShuffledProducts] = useState<Product[]>([]);
+  const [tickerTexts, setTickerTexts] = useState<string[]>(() => Database.getTickerTexts());
+
+  // Fetch news ticker texts from the dedicated firestore collection/table whenever home tab is opened or on startup
+  useEffect(() => {
+    if (activeTab === 'home') {
+      const fetchFreshTicker = async () => {
+        try {
+          const snap = await getDocs(collection(db, COLLECTIONS.TICKER_TEXTS));
+          if (snap && !snap.empty) {
+            const list: any[] = [];
+            snap.forEach(d => list.push(d.data()));
+            list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            const texts = list.map(item => item.text).filter(Boolean);
+            if (texts.length > 0) {
+              setTickerTexts(texts);
+              localStorage.setItem('amrwh_ticker_texts', JSON.stringify(texts));
+            }
+          }
+        } catch (err) {
+          console.warn("Error fetching fresh ticker on tab open:", err);
+        }
+      };
+      fetchFreshTicker();
+    }
+  }, [activeTab]);
 
   // Automatically trigger silent sync and random product shuffling on navigation transitions
   useEffect(() => {
@@ -121,7 +161,7 @@ export default function App() {
   const [giftPopup, setGiftPopup] = useState<{ amount: number; title: string; expiryStr: string } | null>(null);
   const [giftReminderPopup, setGiftReminderPopup] = useState<{ amount: number; campaignTitle: string; hoursLeft: number } | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [activeToast, setActiveToast] = useState<{ id: string; title: string; message: string } | null>(null);
+  const [activeToast, setActiveToast] = useState<{ id: string; title: string; message: string; productId?: string } | null>(null);
 
   // Device Lock States
   const [isDeviceBlocked, setIsDeviceBlocked] = useState<boolean>(false);
@@ -186,6 +226,7 @@ export default function App() {
   // Syncing & Online states
   const [isSyncing, setIsSyncing] = useState<boolean>(true);
   const [isOnline, setIsOnline] = useState<boolean>(typeof window !== 'undefined' ? navigator.onLine : true);
+  const [showWelcome, setShowWelcome] = useState<boolean>(true);
 
   const triggerSync = async () => {
     setIsSyncing(true);
@@ -193,10 +234,29 @@ export default function App() {
       await Database.syncFromFirestore(() => {
         handleReloadAll();
         setIsSyncing(false);
+
+        // Prioritize loading/pre-fetching of slider, category, and first few product images
+        try {
+          const currentOffers = Database.getOffersImages();
+          const currentCategories = Database.getCategories().map(c => c.image);
+          const currentProducts = Database.getProducts().slice(0, 8).flatMap(p => p.images || []);
+          
+          const allUrls = [...currentOffers, ...currentCategories, ...currentProducts].filter(Boolean);
+          allUrls.forEach(url => {
+            const img = new Image();
+            img.src = url;
+          });
+        } catch (preloadErr) {
+          console.warn("Preloading images failed:", preloadErr);
+        }
+
+        // Hide welcome overlay on successful sync
+        setShowWelcome(false);
       });
     } catch (e) {
       console.warn("Firestore sync failed:", e);
       setIsSyncing(false);
+      setShowWelcome(false);
     }
   };
 
@@ -270,7 +330,8 @@ export default function App() {
       setActiveToast({
         id: notif.id,
         title: notif.title,
-        message: notif.message
+        message: notif.message,
+        productId: notif.productId
       });
 
       // Automatically auto-dismiss toast after 6 seconds
@@ -282,16 +343,14 @@ export default function App() {
       handleReloadAll();
 
       // 2. Background Browser Push Notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          new Notification('متجر أم روح 🌸', {
-            body: `${notif.title}\n${notif.message}`,
-            icon: '/favicon.ico',
-            tag: notif.id
-          });
-        } catch (err) {
-          console.error("Browser notification failed to trigger:", err);
-        }
+      try {
+        showSystemNotification(notif.title, notif.message, {
+          tag: notif.id,
+          image: notif.image,
+          data: { productId: notif.productId }
+        });
+      } catch (err) {
+        console.error("Browser notification failed to trigger:", err);
       }
     };
 
@@ -325,15 +384,30 @@ export default function App() {
 
     // Sync asynchronously from Firestore
     triggerSync();
+
+    // Safety welcome screen timeout (max 4 seconds, shorter if already synced once)
+    const hasData = Database.hasSyncedOnce();
+    const timeoutDuration = hasData ? 1200 : 4000;
+    const timeout = setTimeout(() => {
+      setShowWelcome(false);
+    }, timeoutDuration);
+
+    return () => clearTimeout(timeout);
   }, []);
 
-  // Handle product deep-linking from shared URLs containing ?code=...
+  // Handle product deep-linking from shared URLs containing ?code=... or ?prod=...
   useEffect(() => {
     if (products.length > 0) {
       const params = new URLSearchParams(window.location.search);
-      const codeParam = params.get('code') || params.get('prod');
-      if (codeParam) {
-        const found = products.find(p => p.code.toLowerCase() === codeParam.trim().toLowerCase());
+      const codeParam = params.get('code');
+      const prodParam = params.get('prod');
+      
+      if (codeParam || prodParam) {
+        const searchVal = (codeParam || prodParam || '').trim().toLowerCase();
+        const found = products.find(p => 
+          p.code.toLowerCase() === searchVal || 
+          p.id.toLowerCase() === searchVal
+        );
         if (found) {
           setSelectedProduct(found);
           // clear code parameters from address bar gracefully
@@ -377,7 +451,11 @@ export default function App() {
 
         if (unreadNew.length > 0) {
           unreadNew.forEach(n => {
-            showSystemNotification(n.title, n.message);
+            showSystemNotification(n.title, n.message, {
+              tag: n.id,
+              image: n.image,
+              data: { productId: n.productId }
+            });
             systemNotifiedIdsRef.current.push(n.id);
           });
         }
@@ -633,6 +711,7 @@ export default function App() {
     setAdvisor(Database.getAdvisorSettings());
     setOfferImages(Database.getOffersImages());
     setAdminCode(Database.getAdminCode());
+    setTickerTexts(Database.getTickerTexts());
 
     // Check OTA update after sync is done
     try {
@@ -666,7 +745,6 @@ export default function App() {
         return [...prev, newItem];
       }
     });
-    setSelectedProduct(null); // close details modal
   };
 
   const handleUpdateCartQuantity = (productId: string, propKey: string, qty: number) => {
@@ -912,43 +990,11 @@ export default function App() {
           isSyncing={isSyncing}
           storeWhatsapp={advisor.whatsappNumber || '967739563915'}
         />
-      ) : !Database.hasSyncedOnce() && isSyncing ? (
-        /* Premium Welcome Loading Screen on First Sync with Skip option */
-        <div className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100/30 dark:from-gray-950 dark:to-gray-900 flex flex-col items-center justify-center p-6 text-right" dir="rtl">
-          <div className="flex flex-col items-center space-y-6 text-center max-w-sm">
-            {/* Spinning Golden Circle & Pulse Logo */}
-            <div className="relative w-24 h-24 flex items-center justify-center">
-              <div className="absolute inset-0 rounded-full border-4 border-amber-500/20 border-t-amber-500 animate-spin" />
-              <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30 animate-pulse text-2xl">
-                🌸
-              </div>
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-lg font-black text-amber-950 dark:text-amber-200">
-                جاري تهيئة متجر أم روح...
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                يرجى الانتظار بينما نقوم بمزامنة أحدث قوائم المنتجات والأسعار من السحابة لخدمتكِ بشكل أفضل 💖
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setIsSyncing(false);
-                localStorage.setItem('amrwh_last_sync_success', 'true');
-                localStorage.setItem('amrwh_last_sync_timestamp', new Date().toISOString());
-                handleReloadAll();
-              }}
-              className="mt-4 text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline bg-amber-500/10 px-4 py-2 rounded-xl transition duration-200"
-            >
-              تخطي ودخول فوري بالنسخة الاحتياطية ⚡
-            </button>
-          </div>
-        </div>
       ) : (
         /* Standard Customer Portal with custom single-page tabs */
-        <div className="pt-[80px] pb-28">
+        <div className="fixed inset-0 flex flex-col max-w-md mx-auto bg-amber-50/10 dark:bg-gray-950 overflow-hidden">
           {/* Header branding logo section */}
-          <div className="fixed top-0 left-0 right-0 z-50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-4 py-4 border-b border-amber-100/40 dark:border-gray-800 shadow-sm flex justify-between items-center max-w-md mx-auto rounded-b-3xl">
+          <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-4 py-4 border-b border-amber-100/40 dark:border-gray-800 shadow-sm flex justify-between items-center rounded-b-3xl shrink-0 z-50">
             {selectedProduct ? (
               <button
                 onClick={() => window.history.back()}
@@ -1012,7 +1058,8 @@ export default function App() {
             </div>
           </div>
 
-          <AnimatePresence mode="wait">
+          <div className="flex-1 overflow-y-auto pt-2 pb-[88px] scrollbar-none scroll-smooth">
+            <AnimatePresence mode="wait">
             {/* TAB 1: HOME CATALOG */}
             {activeTab === 'home' && (
               <motion.div
@@ -1030,6 +1077,7 @@ export default function App() {
                   offerImages={offerImages}
                   onSelectProduct={(p) => setSelectedProduct(p)}
                   onOpenAdvisorChat={() => setIsAdvisorChatOpen(true)}
+                  tickerTexts={tickerTexts}
                 />
               </motion.div>
             )}
@@ -1259,7 +1307,8 @@ export default function App() {
                 />
               </motion.div>
             )}
-          </AnimatePresence>
+           </AnimatePresence>
+          </div>
 
           {/* Bottom Tab Navigation bar */}
           <Navbar
@@ -1320,6 +1369,15 @@ export default function App() {
         notifications={combinedNotifications}
         userId={user.id}
         onRefresh={handleReloadAll}
+        onNotificationClick={(notif) => {
+          if (notif.productId) {
+            const foundProduct = products.find(p => p.id === notif.productId);
+            if (foundProduct) {
+              setSelectedProduct(foundProduct);
+              setShowNotificationDrawer(false);
+            }
+          }
+        }}
       />
 
       {/* PWA Auto-Install Prompt Modal */}
@@ -1338,6 +1396,14 @@ export default function App() {
             className="fixed top-20 left-4 right-4 z-[9999] max-w-sm mx-auto bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border border-amber-500/25 rounded-2xl shadow-2xl p-4 text-right flex flex-row-reverse items-start gap-3 select-none cursor-pointer"
             dir="rtl"
             onClick={() => {
+              if (activeToast.productId) {
+                const foundProduct = products.find(p => p.id === activeToast.productId);
+                if (foundProduct) {
+                  setSelectedProduct(foundProduct);
+                  setActiveToast(null);
+                  return;
+                }
+              }
               setActiveToast(null);
               setShowNotificationDrawer(true);
             }}
@@ -1484,6 +1550,38 @@ export default function App() {
                 </p>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Welcome SplashScreen Overlay (max 5 seconds fade out) */}
+      <AnimatePresence>
+        {showWelcome && (
+          <motion.div
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 1.05 }}
+            transition={{ duration: 0.4, ease: 'easeInOut' }}
+            className="fixed inset-0 bg-white dark:bg-gray-950 z-[99999] flex flex-col items-center justify-center p-6 text-center select-none"
+            dir="rtl"
+          >
+            <div className="flex flex-col items-center space-y-6 max-w-sm">
+              {/* Premium Golden Pulsing Rings (No spinning browser-like loaders) */}
+              <div className="relative w-24 h-24 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-amber-500/10 animate-ping" />
+                <div className="absolute inset-2 rounded-full border-2 border-amber-500/30 animate-pulse" />
+                <div className="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-500 rounded-full flex items-center justify-center shadow-lg shadow-amber-500/30 animate-pulse text-2xl z-10">
+                  🌸
+                </div>
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-lg font-black text-amber-950 dark:text-amber-200">
+                  مرحباً بكِ في متجر أم روح 🌸
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed font-semibold">
+                  جاري تحميل أحدث المنتجات والعروض الحقيقية من السحابة... ✨
+                </p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
