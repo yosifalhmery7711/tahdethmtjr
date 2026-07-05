@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Product, Currency, ExchangeRate, User } from '../types';
-import { convertPrice, getCurrencySymbol, getCurrencyCode, parseDescription, generateWhatsAppLink } from '../utils';
+import { convertPrice, getCurrencySymbol, getCurrencyCode, parseDescription, generateWhatsAppLink, getDirectImageUrl, copyToClipboard } from '../utils';
 import { Database } from '../database';
 
 interface ProductDetailsProps {
@@ -113,6 +113,84 @@ export default function ProductDetails({
     return initial;
   });
 
+  const [isDownloadingImage, setIsDownloadingImage] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+
+  const handleWhatsAppCheckoutWithImage = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDownloadingImage(true);
+    setDownloadProgress('جاري تجهيز تفاصيل الطلب والصنف...');
+
+    const storePhone = Database.getAdminSettings().whatsappNumber || '967739563915';
+
+    let propertiesText = '';
+    Object.entries(selectedProperties).forEach(([key, val]) => {
+      if (val) {
+        propertiesText += `\n- *${key}:* ${val}`;
+      }
+    });
+
+    const customerDetailsText = user.isRegistered 
+      ? `👤 *الاسم للعميل:* ${user.name}\n📞 *الهاتف:* ${user.phone}\n📍 *العنوان:* ${user.address || 'غير محدد'}` 
+      : `👤 *الاسم للعميل:* زائر`;
+
+    const directImageLink = product.images && product.images.length > 0 ? getDirectImageUrl(product.images[0]) : '';
+
+    const messageText = `🌸 *طلب شراء صنف جديد من متجر أم روح* 🌸
+
+🛍️ *اسم المنتج:* ${product.name}
+🔢 *رمز المنتج:* ${product.code}
+⚙️ *الخيارات المختارة:* ${propertiesText ? propertiesText : '\n- لا توجد خيارات'}
+🔢 *الكمية:* ${quantity}
+💰 *السعر:* ${displayedPrice} ${getCurrencyCode(selectedCurrency)}
+💵 *الإجمالي:* ${displayedPrice * quantity} ${getCurrencyCode(selectedCurrency)}
+
+---
+${customerDetailsText}
+${directImageLink ? `\n🔗 *رابط صورة الصنف:* ${directImageLink}` : ''}
+
+شكراً لكم! ✨`;
+
+    let imageFile: File | null = null;
+    if (directImageLink) {
+      try {
+        setDownloadProgress('جاري تحميل صورة الصنف من جوجل درايف لإرفاقها بالطلب...');
+        const response = await fetch(directImageLink);
+        if (response.ok) {
+          const blob = await response.blob();
+          const ext = blob.type.split('/')[1] || 'jpg';
+          imageFile = new File([blob], `${product.code || 'product'}.${ext}`, { type: blob.type });
+          setDownloadProgress('تم تحميل الصورة بنجاح! جاري إرسالها إلى الواتساب...');
+        } else {
+          console.warn("Failed to download image: Non-200 response");
+        }
+      } catch (err) {
+        console.warn("CORS or offline network prevent downloading image blob:", err);
+      }
+    }
+
+    setIsDownloadingImage(false);
+
+    // If we have an image file and navigator.share is capable, share it
+    if (imageFile && navigator.canShare && navigator.canShare({ files: [imageFile] })) {
+      try {
+        await navigator.share({
+          files: [imageFile],
+          title: product.name,
+          text: messageText
+        });
+        return;
+      } catch (shareErr) {
+        console.warn("Web Share API failed, fallback to standard link:", shareErr);
+      }
+    }
+
+    // Fallback: Direct WhatsApp Link
+    const cleanPhone = storePhone.replace(/[+\s-]/g, '');
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(messageText)}`;
+    window.open(waUrl, '_blank');
+  };
+
   const handlePropertySelect = (propName: string, option: string) => {
     setSelectedProperties(prev => ({
       ...prev,
@@ -159,16 +237,21 @@ export default function ProductDetails({
         title: product.name,
         text: shareText,
         url: shareUrl,
-      }).catch(() => {
+      }).catch(async () => {
         // Fallback copy
-        navigator.clipboard.writeText(shareText);
-        setShareSuccess(true);
-        setTimeout(() => setShareSuccess(false), 2000);
+        const success = await copyToClipboard(shareText);
+        if (success) {
+          setShareSuccess(true);
+          setTimeout(() => setShareSuccess(false), 2000);
+        }
       });
     } else {
-      navigator.clipboard.writeText(shareText);
-      setShareSuccess(true);
-      setTimeout(() => setShareSuccess(false), 2000);
+      copyToClipboard(shareText).then((success) => {
+        if (success) {
+          setShareSuccess(true);
+          setTimeout(() => setShareSuccess(false), 2000);
+        }
+      });
     }
   };
 
@@ -179,9 +262,9 @@ export default function ProductDetails({
   };
 
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-amber-50 dark:bg-gray-950 pt-[76px] pb-32 text-right" dir="rtl">
+    <div className="fixed inset-0 z-40 flex flex-col bg-amber-50 dark:bg-gray-950 text-right overflow-hidden" dir="rtl">
       {/* Top Floating bar */}
-      <div className="sticky top-0 z-30 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-amber-100 dark:border-gray-800 shadow-sm">
+      <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md px-4 py-3.5 flex justify-between items-center border-b border-amber-100 dark:border-gray-800 shadow-sm z-50 shrink-0">
         <button
           id="prod-details-back"
           onClick={onBack}
@@ -231,7 +314,8 @@ export default function ProductDetails({
         </div>
       </div>
 
-      <div className="max-w-md mx-auto px-4 mt-4 space-y-5">
+      <div className="flex-1 overflow-y-auto pt-4 pb-20 px-4 scrollbar-none scroll-smooth">
+        <div className="max-w-md mx-auto space-y-5">
         {/* Images Slider */}
         <div className="relative h-64 w-full bg-white dark:bg-gray-900 rounded-3xl overflow-hidden shadow-md border border-amber-100/50 dark:border-gray-800">
           {product.images && product.images.length > 0 ? (
@@ -412,35 +496,33 @@ export default function ProductDetails({
           </button>
 
           {/* Checkout WhatsApp direct */}
-          <a
+          <button
             id="whatsapp-checkout-btn"
-            href={whatsappLink}
-            target="_blank"
-            rel="noreferrer"
-            className="col-span-1 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-extrabold text-xs shadow-md shadow-emerald-600/10 flex items-center justify-center gap-2 transition transform active:scale-95 text-center"
+            onClick={handleWhatsAppCheckoutWithImage}
+            className="col-span-1 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-extrabold text-xs shadow-md shadow-emerald-600/10 flex items-center justify-center gap-2 transition transform active:scale-95 text-center cursor-pointer"
           >
             {/* WhatsApp Icon */}
             <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
               <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.457L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.825 1.451 5.436 0 9.86-4.37 9.863-9.73.001-2.595-1.006-5.035-2.834-6.867-1.829-1.83-4.263-2.836-6.853-2.836-5.44 0-9.866 4.372-9.87 9.732-.001 1.774.475 3.514 1.378 5.035l-.991 3.616 3.73-.974zm11.332-6.55c-.29-.145-1.716-.847-1.982-.944-.265-.097-.458-.145-.65.145-.192.291-.745.944-.913 1.138-.168.194-.337.218-.627.073-.29-.146-1.226-.452-2.336-1.442-.864-.771-1.447-1.723-1.617-2.014-.17-.29-.018-.448.127-.592.13-.13.29-.34.436-.51.145-.17.193-.291.29-.485.097-.194.049-.364-.025-.51-.072-.145-.65-1.564-.89-2.146-.233-.56-.47-.483-.65-.492-.168-.008-.362-.01-.555-.01s-.507.072-.771.359c-.265.288-1.012.988-1.012 2.41 0 1.42 1.036 2.79 1.18 2.985.145.195 2.037 3.11 4.935 4.363.689.298 1.228.476 1.648.61.693.22 1.324.19 1.823.11.556-.09 1.716-.7 1.959-1.375.24-.675.24-1.25.17-1.375-.075-.12-.266-.19-.556-.34z" />
             </svg>
             <span>الطلب متجر الواتس</span>
-          </a>
+          </button>
         </div>
 
         {/* Toast alert on Add-to-cart */}
         <AnimatePresence>
           {cartSuccess && (
             <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 50 }}
-              className="bg-amber-900 text-white p-4 rounded-2xl shadow-xl flex items-center justify-between border border-amber-800 text-xs font-bold"
+              initial={{ opacity: 0, y: 50, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 50, scale: 0.95 }}
+              className="fixed bottom-24 left-4 right-4 z-[9999] max-w-sm mx-auto bg-amber-950/95 backdrop-blur-md text-white p-4.5 rounded-2xl shadow-2xl flex items-center justify-between border border-amber-500/30 text-xs font-bold"
             >
               <div className="flex items-center gap-2">
-                <ShoppingCart className="w-4.5 h-4.5 text-amber-400" />
-                <span>تم إضافة ({quantity}) من {product.name.slice(0, 20)}... للسلة!</span>
+                <ShoppingCart className="w-5 h-5 text-amber-400 animate-bounce" />
+                <span>تم إضافة ({quantity}) من {product.name.slice(0, 20)}... للسلة! 🛒</span>
               </div>
-              <span className="text-[10px] text-amber-300 font-semibold">(عربتي)</span>
+              <span className="text-[10px] text-amber-300 font-extrabold">(عربتي)</span>
             </motion.div>
           )}
         </AnimatePresence>
@@ -589,7 +671,7 @@ export default function ProductDetails({
                   <div className="flex gap-2.5 items-start">
                     <Store className="w-5 h-5 text-amber-600 shrink-0" />
                     <div>
-                      <h4 className="font-extrabold text-amber-950 dark:text-amber-300">متجر أم روح للأسر المنتجة</h4>
+                      <h4 className="font-extrabold text-amber-950 dark:text-amber-300">تعز - المدينة (Taiz - Al Madina)</h4>
                       <p className="mt-1 leading-relaxed text-gray-500 text-[11px]">
                         نهتم بتقديم أرقى المنتجات المنزلية، والملابس الجاهزة والفاخرة للأطفال والكبار، وألعاب الأطفال الإبداعية، مع مستحضرات التجميل والعناية الشخصية بأعلى جودة وأسعار تنافسية ممتازة تناسب ميزانيتك.
                       </p>
@@ -617,6 +699,7 @@ export default function ProductDetails({
             </AnimatePresence>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Lightbox Modal */}
@@ -698,6 +781,60 @@ export default function ProductDetails({
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* WhatsApp Image Processing Loader Overlay */}
+      <AnimatePresence>
+        {isDownloadingImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-white dark:bg-gray-900 rounded-[32px] p-8 max-w-sm w-full border border-emerald-500/10 shadow-2xl space-y-6"
+            >
+              <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                {/* Outer spinning ring */}
+                <div className="absolute inset-0 rounded-full border-4 border-emerald-100 dark:border-emerald-950/40"></div>
+                <div className="absolute inset-0 rounded-full border-4 border-t-emerald-600 dark:border-t-emerald-500 animate-spin"></div>
+                {/* Cloud icon */}
+                <div className="bg-emerald-50 dark:bg-emerald-950/20 p-3 rounded-full text-emerald-600 dark:text-emerald-400">
+                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-black text-emerald-950 dark:text-emerald-300">
+                  جاري تحميل صورة الصنف
+                </h3>
+                <p className="text-xs text-gray-500 leading-relaxed font-medium">
+                  {downloadProgress}
+                </p>
+              </div>
+
+              {/* Progress bar mock */}
+              <div className="w-full bg-gray-100 dark:bg-gray-800 h-2 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: "10%" }}
+                  animate={{ width: "95%" }}
+                  transition={{ duration: 3, ease: "easeInOut" }}
+                  className="bg-emerald-500 h-full rounded-full"
+                ></motion.div>
+              </div>
+
+              <div className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                سنقوم بتحويلكِ إلى الواتساب مباشرة لإرسال الطلب بشكل أنيق ومحمل بصورة وخصائص الصنف فوراً 🌸✨
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
