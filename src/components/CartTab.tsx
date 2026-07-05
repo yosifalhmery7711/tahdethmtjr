@@ -55,6 +55,7 @@ export default function CartTab({
   const [isCurrencyDropdownOpen, setIsCurrencyDropdownOpen] = useState(false);
   const [showCheckoutModal, setShowCheckoutModal] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'gift' | 'recharge' | 'transfer'>('transfer');
+  const [transferType, setTransferType] = useState<'kuraimi' | 'najm'>('kuraimi');
 
   const useGiftPayment = paymentMethod === 'gift';
   const useRechargePayment = paymentMethod === 'recharge';
@@ -92,6 +93,8 @@ export default function CartTab({
   const [lastOrderId, setLastOrderId] = useState('');
   const [whatsappMessageUrl, setWhatsappMessageUrl] = useState<string>('');
   const [checkoutVia, setCheckoutVia] = useState<'app' | 'whatsapp'>('app');
+  const [isDownloadingCartImages, setIsDownloadingCartImages] = useState(false);
+  const [cartDownloadProgress, setCartDownloadProgress] = useState('');
 
   // Google Auth & Drive States
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
@@ -221,7 +224,7 @@ export default function CartTab({
         return;
       }
       if (!senderAccount.trim()) {
-        setFormError('يرجى كتابة رقم الحساب الكريمي المرسل منه.');
+        setFormError(transferType === 'kuraimi' ? 'يرجى كتابة رقم الحساب الكريمي المرسل منه.' : 'يرجى كتابة رقم الحوالة المرسل.');
         return;
       }
     }
@@ -270,7 +273,9 @@ export default function CartTab({
       ? '🎁 خصم من هدايا أم روح (سداد فوري مباشر)'
       : useRechargePayment 
         ? '💳 خصم من رصيد المحفظة المشحون (سداد فوري مباشر)'
-        : `🏦 حوالة الكريمي\n- اسم المرسل للحوالة: ${senderName}\n- الحساب المرسل منه/رقم الحوالة: ${senderAccount}${driveReceiptLink ? `\n🔗 رابط السند (جوجل درايف): ${driveReceiptLink}` : ''}`;
+        : transferType === 'kuraimi'
+          ? `🏦 حوالة الكريمي\n- اسم صاحب الحساب (كريمي): ${adminSettings.kuraimiAccountName || 'أم روح'}\n- رقم الحساب (كريمي): ${adminSettings.kuraimiAccountNumber || '967739563915'}\n- اسم المرسل للحوالة: ${senderName}\n- الحساب المرسل منه/رقم الحوالة: ${senderAccount}${driveReceiptLink ? `\n🔗 رابط السند (جوجل درايف): ${driveReceiptLink}` : ''}`
+          : `⭐ حوالة النجم وغيرها\n- اسم المستلم المعتمد: ${adminSettings.najmReceiverName || 'روح أحمد علي'}\n- اسم المرسل للحوالة: ${senderName}\n- رقم الحوالة: ${senderAccount}${driveReceiptLink ? `\n🔗 رابط السند (جوجل درايف): ${driveReceiptLink}` : ''}`;
 
     const messageText = `🌸 *طلب جديد من متجر أم روح* 🌸
 
@@ -313,7 +318,9 @@ ${itemsText}
         ? 'gift_wallet' 
         : useRechargePayment 
           ? 'recharge_wallet' 
-          : 'al_kuraimi',
+          : transferType === 'kuraimi'
+            ? 'al_kuraimi'
+            : 'najm',
       checkoutVia: checkoutVia
     }, guestInfo);
 
@@ -322,9 +329,57 @@ ${itemsText}
     setShowCheckoutModal(false);
     onClearCart();
 
-    if (checkoutVia === 'whatsapp' && waUrl) {
-      // Direct redirect
-      window.open(waUrl, '_blank');
+    if (checkoutVia === 'whatsapp') {
+      const runWhatsAppShare = async () => {
+        setIsDownloadingCartImages(true);
+        setCartDownloadProgress('جاري البدء في تحضير صور فاتورتكِ...');
+
+        const filesArray: File[] = [];
+        // Loop and fetch images sequentially with clear progress messages
+        for (let i = 0; i < finalItems.length; i++) {
+          const item = finalItems[i];
+          if (item.image) {
+            const directImg = getDirectImageUrl(item.image);
+            if (directImg) {
+              try {
+                setCartDownloadProgress(`جاري تحميل صورة المنتج (${i + 1} من ${finalItems.length}): ${item.productName}...`);
+                const response = await fetch(directImg);
+                if (response.ok) {
+                  const blob = await response.blob();
+                  const ext = blob.type.split('/')[1] || 'jpg';
+                  const file = new File([blob], `${item.productCode || 'item'}_${i}.${ext}`, { type: blob.type });
+                  filesArray.push(file);
+                }
+              } catch (err) {
+                console.warn(`CORS or offline network prevented downloading image for ${item.productName}:`, err);
+              }
+            }
+          }
+        }
+
+        setIsDownloadingCartImages(false);
+
+        // Limit files count if needed or share if supported
+        if (filesArray.length > 0 && navigator.canShare && navigator.canShare({ files: filesArray })) {
+          try {
+            await navigator.share({
+              files: filesArray,
+              title: `فاتورة طلب ${generatedOrderId}`,
+              text: messageText
+            });
+            return;
+          } catch (shareErr) {
+            console.warn("Cart sharing failed, fallback to standard link:", shareErr);
+          }
+        }
+
+        // Fallback: direct WhatsApp
+        const formattedPhone = cleanPhone.replace(/[+\s-]/g, '');
+        const directWaUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(messageText)}`;
+        window.open(directWaUrl, '_blank');
+      };
+
+      runWhatsAppShare();
     }
   };
 
@@ -856,16 +911,64 @@ ${itemsText}
                   </div>
 
                   {/* Standard bank transfer details if not using gift wallet */}
+                  {/* Standard bank transfer details if not using gift wallet */}
                   {!isWalletPayment ? (
                     <>
-                      <div className="bg-blue-50/50 dark:bg-gray-800/60 p-3.5 rounded-2xl border border-blue-100/50 dark:border-gray-800 text-[10.5px] text-blue-800 dark:text-blue-400 leading-relaxed font-semibold">
-                        ℹ️ يرجى إيداع قيمة الفاتورة وهي <span className="font-extrabold text-amber-700">{totalAmount} {getCurrencyCode(selectedCurrency)}</span> إلى حساب المتجر المعتمد لهذه العملة أدناه، ثم تعبئة بيانات الإرسال وإرفاق صورة السند:
-                        <div className="mt-1.5 font-black text-amber-800 dark:text-amber-400 bg-amber-500/5 p-2 rounded-lg text-center tracking-wide text-xs space-y-1">
-                          <div>🏦 {activeBank.bankName}</div>
-                          <div className="text-[13px] text-amber-600 dark:text-amber-400 font-extrabold">الحساب: {activeBank.accountNumber}</div>
-                          <div className="text-[10px] text-gray-500 dark:text-gray-400">باسم: {activeBank.accountName}</div>
-                        </div>
+                      {/* Sub-tabs for transfer types */}
+                      <div className="flex border border-amber-100/40 dark:border-gray-800 rounded-xl overflow-hidden mb-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransferType('kuraimi');
+                            setSenderAccount('');
+                          }}
+                          className={`flex-1 py-2 text-center text-[11px] font-black transition-all ${
+                            transferType === 'kuraimi'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-gray-50 dark:bg-gray-800 text-gray-500 hover:text-gray-750'
+                          }`}
+                        >
+                          🏦 حساب الكريمي
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransferType('najm');
+                            setSenderAccount('');
+                          }}
+                          className={`flex-1 py-2 text-center text-[11px] font-black transition-all ${
+                            transferType === 'najm'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-gray-50 dark:bg-gray-800 text-gray-500 hover:text-gray-750'
+                          }`}
+                        >
+                          ⭐ حوالة النجم وغيرها
+                        </button>
                       </div>
+
+                      {transferType === 'kuraimi' ? (
+                        <div className="bg-blue-50/50 dark:bg-gray-800/60 p-3.5 rounded-2xl border border-blue-100/50 dark:border-gray-800 text-[10.5px] text-blue-800 dark:text-blue-400 leading-relaxed font-semibold space-y-2">
+                          <div>
+                            ℹ️ يرجى إيداع أو تحويل قيمة الفاتورة وهي <span className="font-extrabold text-amber-700">{totalAmount} {getCurrencyCode(selectedCurrency)}</span> إلى حساب الكريمي الخاص بالمتجر أدناه:
+                          </div>
+                          <div className="font-black text-amber-800 dark:text-amber-400 bg-amber-500/5 p-2 rounded-lg text-center tracking-wide text-xs space-y-1">
+                            <div>🏦 الكريمي المميز</div>
+                            <div className="text-[13px] text-amber-600 dark:text-amber-400 font-extrabold">الحساب: {adminSettings.kuraimiAccountNumber || '967739563915'}</div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400">باسم: {adminSettings.kuraimiAccountName || 'أم روح'}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-amber-500/5 p-3.5 rounded-2xl border border-amber-200/50 text-[10.5px] text-amber-900 dark:text-amber-300 leading-relaxed font-semibold space-y-2">
+                          <div>
+                            ℹ️ يرجى إرسال حوالة بكامل مبلغ الفاتورة المعتمدة عبر <span className="font-extrabold text-amber-700">شبكة النجم أو أي شبكة صرافة وحوالات أخرى</span> إلى اسم المستلم الموضح أدناه:
+                          </div>
+                          <div className="font-black text-amber-800 dark:text-amber-450 bg-amber-500/10 p-2 rounded-lg text-center tracking-wide text-xs space-y-1">
+                            <div>⭐ شبكة النجم أو أي شبكة أخرى</div>
+                            <div className="text-[13px] text-amber-700 dark:text-amber-400 font-extrabold">الاسم رباعياً: {adminSettings.najmReceiverName || 'روح أحمد علي'}</div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400">حالة الخدمة: معتمد ومباشر (يمكنك التحويل من أي صراف) ⚡</div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Sender Name */}
                       <div className="space-y-1">
@@ -883,13 +986,15 @@ ${itemsText}
 
                       {/* Sender Account */}
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block">رقم حساب الكريمي المرسل منه (أو رقم الحوالة):</label>
+                        <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block">
+                          {transferType === 'kuraimi' ? 'رقم حساب الكريمي المرسل منه (أو رقم الحوالة):' : 'رقم مرجع حوالة النجم (رقم الحوالة المكون من أرقام):'}
+                        </label>
                         <input
                           id="checkout-sender-account"
                           type="text"
                           value={senderAccount}
                           onChange={(e) => setSenderAccount(e.target.value)}
-                          placeholder="مثال: 1234567"
+                          placeholder={transferType === 'kuraimi' ? 'مثال: 1234567' : 'مثال: 987654321'}
                           required
                           className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-medium text-right"
                         />
@@ -955,6 +1060,60 @@ ${itemsText}
 
         {/* Unauthorized Domain Guide Modal */}
         <UnauthorizedDomainModal isOpen={showDomainModal} onClose={() => setShowDomainModal(false)} />
+
+        {/* WhatsApp Cart Images Processing Loader Overlay */}
+        <AnimatePresence>
+          {isDownloadingCartImages && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center"
+            >
+              <motion.div
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                exit={{ scale: 0.9, y: 20 }}
+                className="bg-white dark:bg-gray-900 rounded-[32px] p-8 max-w-sm w-full border border-emerald-500/10 shadow-2xl space-y-6"
+              >
+                <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+                  {/* Outer spinning ring */}
+                  <div className="absolute inset-0 rounded-full border-4 border-emerald-100 dark:border-emerald-950/40"></div>
+                  <div className="absolute inset-0 rounded-full border-4 border-t-emerald-600 dark:border-t-emerald-500 animate-spin"></div>
+                  {/* Folder download icon */}
+                  <div className="bg-emerald-50 dark:bg-emerald-950/20 p-3 rounded-full text-emerald-600 dark:text-emerald-400">
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2m-4-1v8m0 0l3-3m-3 3L9 8m-5 5h16" />
+                    </svg>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-sm font-black text-emerald-950 dark:text-emerald-300">
+                    جاري تحميل صور الفاتورة
+                  </h3>
+                  <p className="text-xs text-gray-500 leading-relaxed font-medium">
+                    {cartDownloadProgress}
+                  </p>
+                </div>
+
+                {/* Progress bar mock */}
+                <div className="w-full bg-gray-100 dark:bg-gray-800 h-2 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: "10%" }}
+                    animate={{ width: "95%" }}
+                    transition={{ duration: 4, ease: "easeInOut" }}
+                    className="bg-emerald-500 h-full rounded-full"
+                  ></motion.div>
+                </div>
+
+                <div className="text-[10px] text-gray-400 font-semibold leading-relaxed">
+                  سنقوم بتحويلكِ إلى الواتساب مباشرة لإرسال تفاصيل الفاتورة وتأكيدها للإدارة مع كامل الصور المرفقة تلقائياً 🌸✨
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
