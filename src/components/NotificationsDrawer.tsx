@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Bell, CheckCheck, Trash2, Calendar, Sparkles } from 'lucide-react';
-import { formatArabicDate } from '../utils';
+import { formatArabicDate, getDirectImageUrl } from '../utils';
 import { Database } from '../database';
 
 interface NotificationItem {
@@ -11,6 +11,8 @@ interface NotificationItem {
   message: string;
   createdAt: string;
   isRead: boolean;
+  image?: string;
+  productId?: string;
 }
 
 interface NotificationsDrawerProps {
@@ -19,6 +21,7 @@ interface NotificationsDrawerProps {
   notifications: NotificationItem[];
   userId: string;
   onRefresh: () => void;
+  onNotificationClick?: (notif: NotificationItem) => void;
 }
 
 export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
@@ -27,6 +30,7 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
   notifications,
   userId,
   onRefresh,
+  onNotificationClick,
 }) => {
 
   const handleMarkAllRead = () => {
@@ -35,11 +39,6 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
   };
 
   const handleClearNotifications = () => {
-    // We can clear standard notifications for the user
-    const currentNotifs = Database.getNotifications(userId);
-    // Overwrite the local notifications storage with filtered out ones
-    const filtered = currentNotifs.filter(n => n.userId !== userId && n.userId !== '');
-    // Or we can just mark them all as read and hide them
     Database.markAllNotificationsRead(userId);
     onRefresh();
   };
@@ -125,13 +124,28 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: idx * 0.05 }}
+                    onClick={() => {
+                      if (onNotificationClick) {
+                        onNotificationClick(notif);
+                      }
+                    }}
                     className={`p-3.5 rounded-2xl border transition-all text-right ${
+                      notif.productId ? 'cursor-pointer hover:border-amber-400 dark:hover:border-amber-700 hover:shadow-md' : ''
+                    } ${
                       notif.isRead
                         ? 'bg-white dark:bg-gray-900 border-gray-100 dark:border-gray-800 opacity-75'
                         : 'bg-amber-500/5 dark:bg-amber-500/5 border-amber-500/20 shadow-sm'
                     }`}
                   >
-                    <div className="flex items-start gap-2.5 justify-end">
+                    <div className="flex items-start gap-2.5 justify-end flex-row-reverse text-right">
+                      {notif.image && (
+                        <img
+                          referrerPolicy="no-referrer"
+                          src={getDirectImageUrl(notif.image)}
+                          alt=""
+                          className="w-12 h-12 rounded-xl object-cover border border-amber-500/10 shrink-0 shadow-sm"
+                        />
+                      )}
                       <div className="flex-1 space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] text-gray-400 flex items-center gap-1 font-mono">
@@ -152,6 +166,14 @@ export const NotificationsDrawer: React.FC<NotificationsDrawerProps> = ({
                         <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed font-semibold">
                           {notif.message}
                         </p>
+
+                        {notif.productId && (
+                          <div className="flex justify-end pt-1">
+                            <span className="text-[9px] font-black text-amber-700 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-500/20 px-2.5 py-0.5 rounded-lg flex items-center gap-1 animate-pulse">
+                              <span>انقري هنا لمشاهدة الصنف 🛍️</span>
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </motion.div>
