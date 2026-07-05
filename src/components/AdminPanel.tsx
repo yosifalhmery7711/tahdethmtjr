@@ -48,6 +48,7 @@ import { Database } from '../database';
 import { convertPrice, getCurrencySymbol, getCurrencyCode, formatArabicDate, getDirectImageUrl } from '../utils';
 import { initAuth, googleSignIn, logout as googleLogout, uploadFileToDrive } from '../googleAuth';
 import { User as FirebaseUser } from 'firebase/auth';
+import { runBrowserMigration, MigrationProgress } from '../supabaseMigrator';
 import { UnauthorizedDomainModal } from './UnauthorizedDomainModal';
 
 interface AdminPanelProps {
@@ -87,6 +88,39 @@ export default function AdminPanel({
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
   const [adminTickerTexts, setAdminTickerTexts] = useState<string[]>(() => Database.getTickerTexts());
   const [newTickerInput, setNewTickerInput] = useState('');
+
+  // Supabase migration states
+  const [isMigratingSupabase, setIsMigratingSupabase] = useState(false);
+  const [migrationLogs, setMigrationLogs] = useState<string[]>([]);
+  const [migrationProgress, setMigrationProgress] = useState<Record<string, MigrationProgress>>({});
+
+  const handleSupabaseMigration = async () => {
+    setIsMigratingSupabase(true);
+    setMigrationLogs([]);
+    setMigrationProgress({});
+    try {
+      const res = await runBrowserMigration(
+        (log) => {
+          setMigrationLogs(prev => [...prev, log]);
+        },
+        (stepKey, progress) => {
+          setMigrationProgress(prev => ({
+            ...prev,
+            [stepKey]: progress
+          }));
+        }
+      );
+      if (res.success) {
+        showToast('🎉 تم ترحيل جميع البيانات والجداول السحابية إلى Supabase بنجاح!');
+      } else {
+        showToast(`❌ فشل بعض ترحيل البيانات: ${res.message}`);
+      }
+    } catch (err: any) {
+      showToast(`❌ خطأ أثناء تشغيل الترحيل: ${err.message || err}`);
+    } finally {
+      setIsMigratingSupabase(false);
+    }
+  };
 
   // Google Auth & Drive States
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
@@ -1819,6 +1853,83 @@ export default function AdminPanel({
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Supabase Migration Tool Card */}
+              <div className="border-t border-amber-100 dark:border-gray-800 pt-6 space-y-4 text-right">
+                <div className="bg-amber-500/10 dark:bg-amber-500/20 p-5 rounded-3xl border border-amber-200 dark:border-amber-900/40 space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-black text-amber-950 dark:text-amber-300">
+                        الترحيل السحابي ونقل البيانات بالكامل إلى Supabase 🚀
+                      </h4>
+                      <p className="text-[10px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed font-bold">
+                        بكبسة زر واحدة، يمكنكِ نقل وترحيل جميع الجداول والبيانات من Firebase Firestore إلى منصة Supabase السحابية الجديدة (بما في ذلك فئات المنتجات، الأصناف والصور، العملاء، الطلبات، والاشعارات وغيرها) لتجنب الحدود المجانية لـ Firebase والاستفادة من السرعة الفائقة لـ Supabase.
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-[10px] font-black bg-amber-500 text-white px-2.5 py-1 rounded-full shadow-xs">
+                      ترقية قواعد البيانات 💾
+                    </span>
+                  </div>
+
+                  {/* Status checklist of steps */}
+                  {Object.keys(migrationProgress).length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-white dark:bg-gray-900/60 p-3 rounded-2xl border border-amber-100/50 dark:border-gray-800 text-right">
+                      {Object.entries(migrationProgress).map(([key, value]) => {
+                        const val = value as MigrationProgress;
+                        return (
+                          <div key={key} className="flex items-center justify-between gap-2 p-1.5 text-[11px] font-bold">
+                            <span className="text-gray-500 dark:text-gray-400">{val.step}:</span>
+                            <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${
+                              val.status === 'success' 
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' 
+                                : val.status === 'error' 
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400' 
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 animate-pulse'
+                            }`}>
+                              {val.status === 'success' && `تم نقل ${val.count} بنجاح ✅`}
+                              {val.status === 'error' && 'فشل النقل ❌'}
+                              {val.status === 'running' && `${val.message}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Live Log Console Box */}
+                  {migrationLogs.length > 0 && (
+                    <div className="bg-gray-950 text-emerald-400 p-4 rounded-2xl font-mono text-[9px] leading-relaxed max-h-48 overflow-y-auto text-left dir-ltr shadow-inner space-y-1">
+                      {migrationLogs.map((log, idx) => (
+                        <div key={idx} className="whitespace-pre-wrap">{log}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button
+                      id="supabase-migration-btn"
+                      type="button"
+                      disabled={isMigratingSupabase}
+                      onClick={handleSupabaseMigration}
+                      className="flex-1 py-3 px-4 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 dark:disabled:bg-gray-800 disabled:text-gray-500 text-white font-extrabold text-xs rounded-2xl hover:scale-[1.01] transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {isMigratingSupabase ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                          </svg>
+                          <span>جاري ترحيل البيانات ونقلها الآن...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>البدء في نقل وترحيل البيانات فوراً لـ Supabase ⚡</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
