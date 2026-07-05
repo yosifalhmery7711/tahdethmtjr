@@ -22,6 +22,7 @@ import {
 } from './types';
 import { db, COLLECTIONS, auth } from './firebase';
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 export enum OperationType {
   CREATE = 'create',
@@ -255,9 +256,243 @@ export class Database {
     this.initialize();
   }
 
-  static async syncFromFirestore(onSyncComplete?: () => void): Promise<void> {
+  static async syncFromFirestore(onSyncComplete?: () => void, force: boolean = false): Promise<void> {
     try {
       this.initialize();
+      
+      // Throttle background syncs to avoid exceeding free-tier Firestore quota
+      if (!force) {
+        const lastSync = this.getLastSyncTime();
+        if (lastSync) {
+          const diffMs = Date.now() - new Date(lastSync).getTime();
+          if (diffMs < 5 * 60 * 1000) { // 5 minutes throttle
+            console.log('Database Sync: Throttled background sync (last sync was less than 5 min ago)');
+            if (onSyncComplete) onSyncComplete();
+            return;
+          }
+        }
+      }
+
+      if (isSupabaseConfigured()) {
+        console.log('Database Sync: Syncing from Supabase...');
+        const [
+          advRes,
+          admRes,
+          genRes,
+          catRes,
+          prodRes,
+          locRes,
+          usersRes,
+          orderRes,
+          giftRes,
+          rechRes,
+          phoneRes,
+          notifRes,
+          tNotifRes,
+          tGiftsRes,
+          tLogsRes,
+          tickerRes
+        ] = await Promise.all([
+          supabase!.from('settings').select('*').eq('id', 'advisor').maybeSingle(),
+          supabase!.from('settings').select('*').eq('id', 'admin').maybeSingle(),
+          supabase!.from('settings').select('*').eq('id', 'general').maybeSingle(),
+          supabase!.from('categories').select('*'),
+          supabase!.from('products').select('*'),
+          supabase!.from('locations').select('*'),
+          supabase!.from('users').select('*'),
+          supabase!.from('orders').select('*'),
+          supabase!.from('gifts').select('*'),
+          supabase!.from('recharges').select('*'),
+          supabase!.from('phone_requests').select('*'),
+          supabase!.from('notifications').select('*'),
+          supabase!.from('targeted_notifications').select('*'),
+          supabase!.from('targeted_gifts').select('*'),
+          supabase!.from('targeted_gift_logs').select('*'),
+          supabase!.from('ticker_texts').select('*')
+        ]);
+
+        if (catRes.error) console.warn("Supabase categories load error:", catRes.error);
+        if (prodRes.error) console.warn("Supabase products load error:", prodRes.error);
+
+        // Process Advisor Settings
+        if (advRes.data) {
+          saveToStorage(this.KEYS.ADVISOR, advRes.data.data);
+        } else {
+          supabase!.from('settings').insert({ id: 'advisor', data: DEFAULT_ADVISOR_SETTINGS }).then(undefined, () => {});
+        }
+
+        // Process Admin Settings
+        if (admRes.data) {
+          saveToStorage(this.KEYS.ADMIN, admRes.data.data);
+        } else {
+          supabase!.from('settings').insert({ id: 'admin', data: DEFAULT_ADMIN_SETTINGS }).then(undefined, () => {});
+        }
+
+        // Process General Settings
+        if (genRes.data) {
+          const genData = genRes.data.data;
+          if (genData?.exchangeRate) {
+            saveToStorage(this.KEYS.EXCHANGE_RATE, genData.exchangeRate);
+          }
+          if (genData?.offers) {
+            saveToStorage(this.KEYS.OFFERS, genData.offers);
+          }
+        } else {
+          supabase!.from('settings').insert({ id: 'general', data: { exchangeRate: DEFAULT_EXCHANGE_RATE, offers: DEFAULT_OFFERS_IMAGES } }).then(undefined, () => {});
+        }
+
+        // Process News Ticker
+        if (tickerRes.data && tickerRes.data.length > 0) {
+          const sorted = [...tickerRes.data].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+          const texts = sorted.map(t => t.text).filter(Boolean);
+          saveToStorage(this.KEYS.TICKER_TEXTS, texts);
+        } else {
+          const defaultTicker = [
+            'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
+            'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
+            'خصومات وعروض مميزة مستمرة على كافة الأقسام 🌟'
+          ];
+          defaultTicker.forEach((text, i) => {
+            supabase!.from('ticker_texts').insert({ id: `ticker_${i}`, text, sortOrder: i, createdAt: new Date().toISOString() }).then(undefined, () => {});
+          });
+          saveToStorage(this.KEYS.TICKER_TEXTS, defaultTicker);
+        }
+
+        // Process Categories
+        if (catRes.data && catRes.data.length > 0) {
+          saveToStorage(this.KEYS.CATEGORIES, catRes.data);
+        } else {
+          DEFAULT_CATEGORIES.forEach(cat => {
+            supabase!.from('categories').insert(cat).then(undefined, () => {});
+          });
+          saveToStorage(this.KEYS.CATEGORIES, DEFAULT_CATEGORIES);
+        }
+
+        // Process Products
+        if (prodRes.data && prodRes.data.length > 0) {
+          saveToStorage(this.KEYS.PRODUCTS, prodRes.data);
+        } else {
+          DEFAULT_PRODUCTS.forEach(prod => {
+            supabase!.from('products').insert(prod).then(undefined, () => {});
+          });
+          saveToStorage(this.KEYS.PRODUCTS, DEFAULT_PRODUCTS);
+        }
+
+        // Process Locations
+        if (locRes.data && locRes.data.length > 0) {
+          saveToStorage(this.KEYS.LOCATIONS, locRes.data);
+        } else {
+          DEFAULT_LOCATIONS.forEach(loc => {
+            supabase!.from('locations').insert(loc).then(undefined, () => {});
+          });
+          saveToStorage(this.KEYS.LOCATIONS, DEFAULT_LOCATIONS);
+        }
+
+        // Process Users
+        const allUsers: User[] = (usersRes.data || []).map((u: any) => ({
+          id: u.id,
+          name: u.name,
+          phone: u.phone,
+          address: u.address,
+          currency: u.currency,
+          balance: Number(u.balance || 0),
+          giftBalance: Number(u.giftBalance || 0),
+          favorites: u.favorites || [],
+          joinDate: u.joinDate,
+          isRegistered: !!u.isRegistered,
+          deviceId: u.deviceId
+        }));
+        if (allUsers.length > 0) {
+          saveToStorage('amrwh_all_users_list', allUsers);
+          const active = this.getUser();
+          let found = allUsers.find(u => u.id === active.id);
+          const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
+          if (!found && currentDevId) {
+            found = allUsers.find(u => u.deviceId === currentDevId && u.isRegistered);
+          }
+          if (found) {
+            if (!found.deviceId && currentDevId) {
+              found.deviceId = currentDevId;
+              supabase!.from('users').update({ deviceId: currentDevId }).eq('id', found.id).then(undefined, () => {});
+            }
+            saveToStorage(this.KEYS.USER, found);
+          } else {
+            if (!active.deviceId && currentDevId) {
+              active.deviceId = currentDevId;
+            }
+            supabase!.from('users').insert({
+              id: active.id,
+              name: active.name,
+              phone: active.phone,
+              address: active.address,
+              currency: active.currency,
+              balance: active.balance,
+              giftBalance: active.giftBalance ?? 0,
+              favorites: active.favorites || [],
+              joinDate: active.joinDate || '',
+              isRegistered: !!active.isRegistered,
+              deviceId: active.deviceId || ''
+            }).then(undefined, () => {});
+          }
+        } else {
+          const active = this.getUser();
+          const currentDevId = typeof window !== 'undefined' ? localStorage.getItem('amrwh_device_id') || '' : '';
+          if (!active.deviceId && currentDevId) {
+            active.deviceId = currentDevId;
+          }
+          supabase!.from('users').insert({
+            id: active.id,
+            name: active.name,
+            phone: active.phone,
+            address: active.address,
+            currency: active.currency,
+            balance: active.balance,
+            giftBalance: active.giftBalance ?? 0,
+            favorites: active.favorites || [],
+            joinDate: active.joinDate || '',
+            isRegistered: !!active.isRegistered,
+            deviceId: active.deviceId || ''
+          }).then(undefined, () => {});
+        }
+
+        // Process Orders
+        saveToStorage(this.KEYS.ORDERS, orderRes.data || []);
+
+        // Process Gifts
+        saveToStorage(this.KEYS.GIFTS, giftRes.data || []);
+
+        // Process Recharges
+        saveToStorage(this.KEYS.RECHARGES, rechRes.data || []);
+
+        // Process Phone Requests
+        saveToStorage(this.KEYS.PHONE_REQUESTS, phoneRes.data || []);
+
+        // Process Notifications
+        if (notifRes.data && notifRes.data.length > 0) {
+          saveToStorage(this.KEYS.NOTIFICATIONS, notifRes.data);
+        } else {
+          DEFAULT_NOTIFICATIONS.forEach(n => {
+            supabase!.from('notifications').insert(n).then(undefined, () => {});
+          });
+          saveToStorage(this.KEYS.NOTIFICATIONS, DEFAULT_NOTIFICATIONS);
+        }
+
+        // Process Targeted Notifications
+        saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, tNotifRes.data || []);
+
+        // Process Targeted Gifts
+        saveToStorage(this.KEYS.TARGETED_GIFTS, tGiftsRes.data || []);
+
+        // Process Targeted Gift Logs
+        saveToStorage(this.KEYS.TARGETED_GIFT_LOGS, tLogsRes.data || []);
+
+        // Save synchronization metadata
+        saveToStorage('amrwh_last_sync_success', 'true');
+        saveToStorage('amrwh_last_sync_timestamp', new Date().toISOString());
+
+        if (onSyncComplete) onSyncComplete();
+        return;
+      }
       
       // Perform all read queries concurrently in parallel with a defensive 4000ms timeout
       // This protects the application from freezing or throwing 10s timeout warnings in limited networks
@@ -491,7 +726,7 @@ export class Database {
 
       if (onSyncComplete) onSyncComplete();
     } catch (e) {
-      console.warn("Failed to sync with Firestore, operating in offline fallback mode:", e);
+      console.warn("Failed to sync, operating in offline fallback mode:", e);
       if (onSyncComplete) onSyncComplete();
     }
   }
@@ -682,20 +917,32 @@ export class Database {
       locs.push(location);
     }
     saveToStorage(this.KEYS.LOCATIONS, locs);
-    setDoc(doc(db, COLLECTIONS.LOCATIONS, location.id), location).catch(e => {
-      console.error("Firestore location save error:", e);
-      handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.LOCATIONS);
-    });
+    if (isSupabaseConfigured()) {
+      supabase!.from('locations').upsert(location).then(({ error }) => {
+        if (error) console.error("Supabase location save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.LOCATIONS, location.id), location).catch(e => {
+        console.error("Firestore location save error:", e);
+        handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.LOCATIONS);
+      });
+    }
   }
 
   static deleteLocation(id: string): void {
     const locs = this.getLocations();
     const filtered = locs.filter(l => l.id !== id);
     saveToStorage(this.KEYS.LOCATIONS, filtered);
-    deleteDoc(doc(db, COLLECTIONS.LOCATIONS, id)).catch(e => {
-      console.error("Firestore location delete error:", e);
-      handleFirestoreError(e, OperationType.DELETE, COLLECTIONS.LOCATIONS);
-    });
+    if (isSupabaseConfigured()) {
+      supabase!.from('locations').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase location delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.LOCATIONS, id)).catch(e => {
+        console.error("Firestore location delete error:", e);
+        handleFirestoreError(e, OperationType.DELETE, COLLECTIONS.LOCATIONS);
+      });
+    }
   }
 
   // --- PRODUCTS ---
@@ -713,20 +960,32 @@ export class Database {
       prods.push(product);
     }
     saveToStorage(this.KEYS.PRODUCTS, prods);
-    setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), product).catch(e => {
-      console.error("Firestore product save error:", e);
-      handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.PRODUCTS);
-    });
+    if (isSupabaseConfigured()) {
+      supabase!.from('products').upsert(product).then(({ error }) => {
+        if (error) console.error("Supabase product save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.PRODUCTS, product.id), product).catch(e => {
+        console.error("Firestore product save error:", e);
+        handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.PRODUCTS);
+      });
+    }
   }
 
   static deleteProduct(productId: string): void {
     const prods = this.getProducts();
     const filtered = prods.filter(p => p.id !== productId);
     saveToStorage(this.KEYS.PRODUCTS, filtered);
-    deleteDoc(doc(db, COLLECTIONS.PRODUCTS, productId)).catch(e => {
-      console.error("Firestore product delete error:", e);
-      handleFirestoreError(e, OperationType.DELETE, COLLECTIONS.PRODUCTS);
-    });
+    if (isSupabaseConfigured()) {
+      supabase!.from('products').delete().eq('id', productId).then(({ error }) => {
+        if (error) console.error("Supabase product delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.PRODUCTS, productId)).catch(e => {
+        console.error("Firestore product delete error:", e);
+        handleFirestoreError(e, OperationType.DELETE, COLLECTIONS.PRODUCTS);
+      });
+    }
   }
 
   // --- EXCHANGE RATES ---
@@ -737,7 +996,13 @@ export class Database {
 
   static saveExchangeRate(rate: ExchangeRate): void {
     saveToStorage(this.KEYS.EXCHANGE_RATE, rate);
-    setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { exchangeRate: rate }, { merge: true }).catch(e => console.error("Firestore exchangeRate save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('settings').upsert({ id: 'general', data: { exchangeRate: rate, offers: this.getOffersImages() } }).then(({ error }) => {
+        if (error) console.error("Supabase exchangeRate save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { exchangeRate: rate }, { merge: true }).catch(e => console.error("Firestore exchangeRate save error:", e));
+    }
   }
 
   // --- ADVISOR & ADMIN SETTINGS ---
@@ -748,7 +1013,13 @@ export class Database {
 
   static saveAdvisorSettings(settings: AdvisorSettings): void {
     saveToStorage(this.KEYS.ADVISOR, settings);
-    setDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor'), settings).catch(e => console.error("Firestore advisor save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('settings').upsert({ id: 'advisor', data: settings }).then(({ error }) => {
+        if (error) console.error("Supabase advisor save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor'), settings).catch(e => console.error("Firestore advisor save error:", e));
+    }
   }
 
   static getAdminSettings(): AdminSettings {
@@ -763,7 +1034,13 @@ export class Database {
 
   static saveAdminSettings(settings: AdminSettings): void {
     saveToStorage(this.KEYS.ADMIN, settings);
-    setDoc(doc(db, COLLECTIONS.SETTINGS, 'admin'), settings).catch(e => console.error("Firestore admin settings save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('settings').upsert({ id: 'admin', data: settings }).then(({ error }) => {
+        if (error) console.error("Supabase admin settings save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.SETTINGS, 'admin'), settings).catch(e => console.error("Firestore admin settings save error:", e));
+    }
   }
 
   // --- OFFERS SLIDER ---
@@ -774,7 +1051,13 @@ export class Database {
 
   static saveOffersImages(images: string[]): void {
     saveToStorage(this.KEYS.OFFERS, images);
-    setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { offers: images }, { merge: true }).catch(e => console.error("Firestore offers save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('settings').upsert({ id: 'general', data: { exchangeRate: this.getExchangeRate(), offers: images } }).then(({ error }) => {
+        if (error) console.error("Supabase offers save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { offers: images }, { merge: true }).catch(e => console.error("Firestore offers save error:", e));
+    }
   }
 
   // --- NEWS TICKER TEXTS ---
@@ -794,27 +1077,39 @@ export class Database {
   static saveTickerTexts(texts: string[]): void {
     const oldLength = loadFromStorage<string[]>(this.KEYS.TICKER_TEXTS, []).length;
     saveToStorage(this.KEYS.TICKER_TEXTS, texts);
-    setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { tickerTexts: texts }, { merge: true })
-      .catch(e => console.error("Firestore ticker texts save error:", e));
-
-    // Save to dedicated ticker_texts collection/table
-    try {
+    if (isSupabaseConfigured()) {
+      supabase!.from('settings').upsert({ id: 'general', data: { exchangeRate: this.getExchangeRate(), offers: this.getOffersImages(), tickerTexts: texts } }).then(undefined, () => {});
       texts.forEach((text, i) => {
-        setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
-          id: `ticker_${i}`,
-          text: text,
-          sortOrder: i,
-          createdAt: new Date().toISOString()
-        }).catch(e => console.error("Error saving ticker doc:", e));
+        supabase!.from('ticker_texts').upsert({ id: `ticker_${i}`, text, sortOrder: i, createdAt: new Date().toISOString() }).then(undefined, () => {});
       });
-      // Delete leftovers if list became smaller
       if (oldLength > texts.length) {
         for (let i = texts.length; i < oldLength + 10; i++) {
-          deleteDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`)).catch(() => {});
+          supabase!.from('ticker_texts').delete().eq('id', `ticker_${i}`).then(undefined, () => {});
         }
       }
-    } catch (e) {
-      console.error("Firestore dedicated ticker collection write error:", e);
+    } else {
+      setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { tickerTexts: texts }, { merge: true })
+        .catch(e => console.error("Firestore ticker texts save error:", e));
+
+      // Save to dedicated ticker_texts collection/table
+      try {
+        texts.forEach((text, i) => {
+          setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
+            id: `ticker_${i}`,
+            text: text,
+            sortOrder: i,
+            createdAt: new Date().toISOString()
+          }).catch(e => console.error("Error saving ticker doc:", e));
+        });
+        // Delete leftovers if list became smaller
+        if (oldLength > texts.length) {
+          for (let i = texts.length; i < oldLength + 10; i++) {
+            deleteDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`)).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error("Firestore dedicated ticker collection write error:", e);
+      }
     }
   }
 
@@ -836,7 +1131,13 @@ export class Database {
     };
     gifts.push(newGift);
     saveToStorage(this.KEYS.GIFTS, gifts);
-    setDoc(doc(db, COLLECTIONS.GIFTS, newGift.id), newGift).catch(e => console.error("Firestore gift send error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('gifts').insert(newGift).then(({ error }) => {
+        if (error) console.error("Supabase gift send error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.GIFTS, newGift.id), newGift).catch(e => console.error("Firestore gift send error:", e));
+    }
 
     // Update user's balance
     const activeUser = this.getUser();
@@ -877,10 +1178,16 @@ export class Database {
     };
     list.push(newReq);
     saveToStorage(this.KEYS.RECHARGES, list);
-    setDoc(doc(db, COLLECTIONS.RECHARGES, newReq.id), newReq).catch(e => {
-      console.error("Firestore recharge submit error:", e);
-      handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.RECHARGES);
-    });
+    if (isSupabaseConfigured()) {
+      supabase!.from('recharges').insert(newReq).then(({ error }) => {
+        if (error) console.error("Supabase recharge submit error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.RECHARGES, newReq.id), newReq).catch(e => {
+        console.error("Firestore recharge submit error:", e);
+        handleFirestoreError(e, OperationType.WRITE, COLLECTIONS.RECHARGES);
+      });
+    }
 
     // Send successful submission notification
     this.addNotification({
@@ -900,10 +1207,16 @@ export class Database {
       req.status = 'approved';
       req.amount = approvedAmount; // Admin can specify approved amount
       saveToStorage(this.KEYS.RECHARGES, list);
-      updateDoc(doc(db, COLLECTIONS.RECHARGES, id), { status: 'approved', amount: approvedAmount }).catch(e => {
-        console.error("Firestore recharge approve error:", e);
-        handleFirestoreError(e, OperationType.UPDATE, COLLECTIONS.RECHARGES);
-      });
+      if (isSupabaseConfigured()) {
+        supabase!.from('recharges').update({ status: 'approved', amount: approvedAmount }).eq('id', id).then(({ error }) => {
+          if (error) console.error("Supabase recharge approve error:", error);
+        });
+      } else {
+        updateDoc(doc(db, COLLECTIONS.RECHARGES, id), { status: 'approved', amount: approvedAmount }).catch(e => {
+          console.error("Firestore recharge approve error:", e);
+          handleFirestoreError(e, OperationType.UPDATE, COLLECTIONS.RECHARGES);
+        });
+      }
 
       // Add to user balance
       const activeUser = this.getUser();
@@ -935,10 +1248,16 @@ export class Database {
     if (req && req.status === 'pending') {
       req.status = 'rejected';
       saveToStorage(this.KEYS.RECHARGES, list);
-      updateDoc(doc(db, COLLECTIONS.RECHARGES, id), { status: 'rejected' }).catch(e => {
-        console.error("Firestore recharge reject error:", e);
-        handleFirestoreError(e, OperationType.UPDATE, COLLECTIONS.RECHARGES);
-      });
+      if (isSupabaseConfigured()) {
+        supabase!.from('recharges').update({ status: 'rejected' }).eq('id', id).then(({ error }) => {
+          if (error) console.error("Supabase recharge reject error:", error);
+        });
+      } else {
+        updateDoc(doc(db, COLLECTIONS.RECHARGES, id), { status: 'rejected' }).catch(e => {
+          console.error("Firestore recharge reject error:", e);
+          handleFirestoreError(e, OperationType.UPDATE, COLLECTIONS.RECHARGES);
+        });
+      }
 
       // Notification
       this.addNotification({
@@ -973,7 +1292,13 @@ export class Database {
     };
     list.push(newReq);
     saveToStorage(this.KEYS.PHONE_REQUESTS, list);
-    setDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, newReq.id), newReq).catch(e => console.error("Firestore phone request submit error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('phone_requests').insert(newReq).then(({ error }) => {
+        if (error) console.error("Supabase phone request submit error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, newReq.id), newReq).catch(e => console.error("Firestore phone request submit error:", e));
+    }
   }
 
   static submitDeviceUnlockRequest(userId: string, userName: string, phone: string, deviceId: string): void {
@@ -991,7 +1316,13 @@ export class Database {
     };
     list.push(newReq);
     saveToStorage(this.KEYS.PHONE_REQUESTS, list);
-    setDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, newReq.id), newReq).catch(e => console.error("Firestore device unlock submit error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('phone_requests').insert(newReq).then(({ error }) => {
+        if (error) console.error("Supabase device unlock submit error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, newReq.id), newReq).catch(e => console.error("Firestore device unlock submit error:", e));
+    }
   }
 
   static approvePhoneRequest(id: string): void {
@@ -1000,7 +1331,13 @@ export class Database {
     if (req && req.status === 'pending') {
       req.status = 'approved';
       saveToStorage(this.KEYS.PHONE_REQUESTS, list);
-      updateDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, id), { status: 'approved' }).catch(e => console.error("Firestore phone request approve error:", e));
+      if (isSupabaseConfigured()) {
+        supabase!.from('phone_requests').update({ status: 'approved' }).eq('id', id).then(({ error }) => {
+          if (error) console.error("Supabase phone request approve error:", error);
+        });
+      } else {
+        updateDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, id), { status: 'approved' }).catch(e => console.error("Firestore phone request approve error:", e));
+      }
 
       if (req.type === 'device_unlock' && req.newDeviceId) {
         // Update device binding
@@ -1015,7 +1352,11 @@ export class Database {
         if (dbUser) {
           dbUser.deviceId = req.newDeviceId;
           saveToStorage('amrwh_all_users_list', allUsers);
-          updateDoc(doc(db, COLLECTIONS.USERS, dbUser.id), { deviceId: req.newDeviceId }).catch(e => console.error("Firestore user device update error:", e));
+          if (isSupabaseConfigured()) {
+            supabase!.from('users').update({ deviceId: req.newDeviceId }).eq('id', dbUser.id).then(undefined, () => {});
+          } else {
+            updateDoc(doc(db, COLLECTIONS.USERS, dbUser.id), { deviceId: req.newDeviceId }).catch(e => console.error("Firestore user device update error:", e));
+          }
         }
 
         // Notification for device unlock
@@ -1042,10 +1383,14 @@ export class Database {
           dbUser.phone = req.newPhone;
           if (req.newName) dbUser.name = req.newName;
           saveToStorage('amrwh_all_users_list', allUsers);
-          updateDoc(doc(db, COLLECTIONS.USERS, req.userId), { 
-            phone: req.newPhone,
-            ...(req.newName ? { name: req.newName } : {})
-          }).catch(e => console.error("Firestore user phone update error:", e));
+          if (isSupabaseConfigured()) {
+            supabase!.from('users').update({ phone: req.newPhone, ...(req.newName ? { name: req.newName } : {}) }).eq('id', req.userId).then(undefined, () => {});
+          } else {
+            updateDoc(doc(db, COLLECTIONS.USERS, req.userId), { 
+              phone: req.newPhone,
+              ...(req.newName ? { name: req.newName } : {})
+            }).catch(e => console.error("Firestore user phone update error:", e));
+          }
         }
 
         // Notification
@@ -1067,7 +1412,13 @@ export class Database {
     if (req && req.status === 'pending') {
       req.status = 'rejected';
       saveToStorage(this.KEYS.PHONE_REQUESTS, list);
-      updateDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, id), { status: 'rejected' }).catch(e => console.error("Firestore phone request reject error:", e));
+      if (isSupabaseConfigured()) {
+        supabase!.from('phone_requests').update({ status: 'rejected' }).eq('id', id).then(({ error }) => {
+          if (error) console.error("Supabase phone request reject error:", error);
+        });
+      } else {
+        updateDoc(doc(db, COLLECTIONS.PHONE_REQUESTS, id), { status: 'rejected' }).catch(e => console.error("Firestore phone request reject error:", e));
+      }
 
       // Notification
       this.addNotification({
@@ -1096,7 +1447,13 @@ export class Database {
       list.push(order);
     }
     saveToStorage(this.KEYS.ORDERS, list);
-    setDoc(doc(db, COLLECTIONS.ORDERS, order.id), order).catch(e => console.error("Firestore order save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('orders').upsert(order).then(({ error }) => {
+        if (error) console.error("Supabase order save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.ORDERS, order.id), order).catch(e => console.error("Firestore order save error:", e));
+    }
   }
 
   static updateOrderStatus(id: string, status: 'completed' | 'canceled'): void {
@@ -1105,7 +1462,13 @@ export class Database {
     if (order) {
       order.status = status;
       saveToStorage(this.KEYS.ORDERS, list);
-      updateDoc(doc(db, COLLECTIONS.ORDERS, id), { status }).catch(e => console.error("Firestore order update error:", e));
+      if (isSupabaseConfigured()) {
+        supabase!.from('orders').update({ status }).eq('id', id).then(({ error }) => {
+          if (error) console.error("Supabase order update error:", error);
+        });
+      } else {
+        updateDoc(doc(db, COLLECTIONS.ORDERS, id), { status }).catch(e => console.error("Firestore order update error:", e));
+      }
 
       // Send appropriate notification
       if (status === 'completed') {
@@ -1154,7 +1517,13 @@ export class Database {
     const list = loadFromStorage<Notification[]>(this.KEYS.NOTIFICATIONS, DEFAULT_NOTIFICATIONS);
     list.push(notif);
     saveToStorage(this.KEYS.NOTIFICATIONS, list);
-    setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notif.id), notif).catch(e => console.error("Firestore notification save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('notifications').insert(notif).then(({ error }) => {
+        if (error) console.error("Supabase notification save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.NOTIFICATIONS, notif.id), notif).catch(e => console.error("Firestore notification save error:", e));
+    }
 
     // Dispatch custom event to let React show in-app toasts & browser push notifications
     if (typeof window !== 'undefined') {
@@ -1168,7 +1537,11 @@ export class Database {
     list.forEach(n => {
       if (!n.userId || n.userId === userId) {
         n.isRead = true;
-        updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, n.id), { isRead: true }).catch(e => {});
+        if (isSupabaseConfigured()) {
+          supabase!.from('notifications').update({ isRead: true }).eq('id', n.id).then(undefined, () => {});
+        } else {
+          updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, n.id), { isRead: true }).catch(e => {});
+        }
       }
     });
     saveToStorage(this.KEYS.NOTIFICATIONS, list);
@@ -1189,14 +1562,26 @@ export class Database {
       list.push(notif);
     }
     saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, list);
-    setDoc(doc(db, COLLECTIONS.TARGETED_NOTIFICATIONS, notif.id), notif).catch(e => console.error("Firestore targeted notification save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('targeted_notifications').upsert(notif).then(({ error }) => {
+        if (error) console.error("Supabase targeted notification save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.TARGETED_NOTIFICATIONS, notif.id), notif).catch(e => console.error("Firestore targeted notification save error:", e));
+    }
   }
 
   static deleteTargetedNotification(id: string): void {
     const list = this.getTargetedNotifications();
     const filtered = list.filter(n => n.id !== id);
     saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, filtered);
-    deleteDoc(doc(db, COLLECTIONS.TARGETED_NOTIFICATIONS, id)).catch(e => console.error("Firestore targeted notification delete error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('targeted_notifications').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase targeted notification delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.TARGETED_NOTIFICATIONS, id)).catch(e => console.error("Firestore targeted notification delete error:", e));
+    }
   }
 
   static getTargetedGifts(): TargetedGift[] {
@@ -1213,14 +1598,26 @@ export class Database {
       list.push(gift);
     }
     saveToStorage(this.KEYS.TARGETED_GIFTS, list);
-    setDoc(doc(db, COLLECTIONS.TARGETED_GIFTS, gift.id), gift).catch(e => console.error("Firestore targeted gift save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('targeted_gifts').upsert(gift).then(({ error }) => {
+        if (error) console.error("Supabase targeted gift save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.TARGETED_GIFTS, gift.id), gift).catch(e => console.error("Firestore targeted gift save error:", e));
+    }
   }
 
   static deleteTargetedGift(id: string): void {
     const list = this.getTargetedGifts();
     const filtered = list.filter(g => g.id !== id);
     saveToStorage(this.KEYS.TARGETED_GIFTS, filtered);
-    deleteDoc(doc(db, COLLECTIONS.TARGETED_GIFTS, id)).catch(e => console.error("Firestore targeted gift delete error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('targeted_gifts').delete().eq('id', id).then(({ error }) => {
+        if (error) console.error("Supabase targeted gift delete error:", error);
+      });
+    } else {
+      deleteDoc(doc(db, COLLECTIONS.TARGETED_GIFTS, id)).catch(e => console.error("Firestore targeted gift delete error:", e));
+    }
   }
 
   static getUserTargetedGiftLogs(): UserTargetedGiftLog[] {
@@ -1237,7 +1634,13 @@ export class Database {
       list.push(log);
     }
     saveToStorage(this.KEYS.TARGETED_GIFT_LOGS, list);
-    setDoc(doc(db, COLLECTIONS.TARGETED_GIFT_LOGS, log.id), log).catch(e => console.error("Firestore user targeted gift log save error:", e));
+    if (isSupabaseConfigured()) {
+      supabase!.from('targeted_gift_logs').upsert(log).then(({ error }) => {
+        if (error) console.error("Supabase user targeted gift log save error:", error);
+      });
+    } else {
+      setDoc(doc(db, COLLECTIONS.TARGETED_GIFT_LOGS, log.id), log).catch(e => console.error("Firestore user targeted gift log save error:", e));
+    }
   }
 
   static toggleProductFavorite(userId: string, productId: string): User {
@@ -1266,7 +1669,11 @@ export class Database {
         }
         u.favorites = favorites;
         saveToStorage('amrwh_all_users_list', allUsers);
-        setDoc(doc(db, COLLECTIONS.USERS, userId), u).catch(e => {});
+        if (isSupabaseConfigured()) {
+          supabase!.from('users').update({ favorites }).eq('id', userId).then(undefined, () => {});
+        } else {
+          setDoc(doc(db, COLLECTIONS.USERS, userId), u).catch(e => {});
+        }
         return u;
       }
     }
