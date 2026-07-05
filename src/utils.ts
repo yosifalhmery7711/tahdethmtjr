@@ -216,41 +216,101 @@ export function evaluateUserTarget(
  * Triggers a real browser system-level notification.
  * Works even when the browser tab is in the background or active.
  */
-export function showSystemNotification(title: string, message: string) {
+export function showSystemNotification(
+  title: string,
+  message: string,
+  options?: { tag?: string; image?: string; data?: any }
+) {
   if (typeof window === 'undefined') return;
   if (!('Notification' in window)) return;
   
   if (Notification.permission === 'granted') {
     try {
+      const tag = options?.tag || 'um-rouh-store-notification-' + Date.now();
+      const image = options?.image || undefined;
+      const data = options?.data || undefined;
+
       // Try using serviceWorker for background-capable notifications
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then((registration) => {
           registration.showNotification(title, {
             body: message,
-            icon: 'https://img.icons8.com/color/192/000000/online-store.png',
+            icon: '/icon-192.png',
+            image: image,
             vibrate: [200, 100, 200],
-            tag: 'um-rouh-store-notification',
-            badge: 'https://img.icons8.com/color/192/000000/online-store.png'
+            tag: tag,
+            badge: '/icon-192.png',
+            data: data
           } as any);
         }).catch(() => {
           // Fallback if ServiceWorker ready fails
           new Notification(title, {
             body: message,
-            icon: 'https://img.icons8.com/color/192/000000/online-store.png',
-            tag: 'um-rouh-store-notification'
-          });
+            icon: '/icon-192.png',
+            image: image,
+            tag: tag,
+            data: data
+          } as any);
         });
       } else {
         // Fallback to standard web notification
         new Notification(title, {
           body: message,
-          icon: 'https://img.icons8.com/color/192/000000/online-store.png',
-          tag: 'um-rouh-store-notification'
-        });
+          icon: '/icon-192.png',
+          image: image,
+          tag: tag,
+          data: data
+        } as any);
       }
     } catch (err) {
       console.warn('Failed to send notification:', err);
     }
+  }
+}
+
+/**
+ * Copies text to clipboard with maximum compatibility, including standard fallback when document isn't focused or inside iframes.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+
+  // 1. Try Navigator Clipboard API if available and document is focused
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (err) {
+      console.warn('Navigator clipboard copy failed, trying fallback:', err);
+    }
+  }
+
+  // 2. Fallback: standard textarea selection and execCommand
+  try {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    
+    // Position out of screen
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
+    textArea.style.top = '0';
+    textArea.style.opacity = '0';
+    
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    let successful = false;
+    try {
+      successful = document.execCommand('copy');
+    } catch (execErr) {
+      console.warn('execCommand copy failed:', execErr);
+    }
+    
+    document.body.removeChild(textArea);
+    return successful;
+  } catch (fallbackErr) {
+    console.error('All clipboard copy methods failed:', fallbackErr);
+    return false;
   }
 }
 
