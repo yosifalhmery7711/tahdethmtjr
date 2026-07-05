@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { convertPrice, getCurrencySymbol, getCurrencyCode, getDirectImageUrl } from '../utils';
 import { Database } from '../database';
+import NewsTicker from './NewsTicker';
 
 interface HomeTabProps {
   user: User;
@@ -38,6 +39,7 @@ interface HomeTabProps {
   offerImages: string[];
   onSelectProduct: (product: Product) => void;
   onOpenAdvisorChat: () => void;
+  tickerTexts?: string[];
 }
 
 export default function HomeTab({
@@ -48,7 +50,8 @@ export default function HomeTab({
   advisor,
   offerImages,
   onSelectProduct,
-  onOpenAdvisorChat
+  onOpenAdvisorChat,
+  tickerTexts = []
 }: HomeTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCatId, setSelectedCatId] = useState<string>('ALL');
@@ -213,6 +216,11 @@ export default function HomeTab({
               </div>
             )}
           </div>
+        )}
+
+        {/* News Ticker directly below slider and spanning its exact width */}
+        {tickerTexts.length > 0 && (
+          <NewsTicker tickerTexts={tickerTexts} />
         )}
 
         {/* Dynamic Search Bar */}
