@@ -174,6 +174,7 @@ export default function ProfileTab({
   const [rechargeAmount, setRechargeAmount] = useState<number>(0);
   const [receiptImage, setReceiptImage] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
+  const [rechargeTransferType, setRechargeTransferType] = useState<'kuraimi' | 'najm'>('kuraimi');
 
   const adminSettings = Database.getAdminSettings();
   const bankAccounts = adminSettings.bankAccounts || [
@@ -233,7 +234,7 @@ export default function ProfileTab({
       return;
     }
     if (!senderAccount.trim()) {
-      setRechargeError('يرجى كتابة رقم الحساب الكريمي.');
+      setRechargeError(rechargeTransferType === 'kuraimi' ? 'يرجى كتابة رقم الحساب الكريمي.' : 'يرجى كتابة رقم مرجع حوالة النجم.');
       return;
     }
     if (rechargeAmount <= 0) {
@@ -243,7 +244,7 @@ export default function ProfileTab({
 
     onSubmitRecharge({
       senderName,
-      senderAccount,
+      senderAccount: rechargeTransferType === 'kuraimi' ? `كريمي: ${senderAccount}` : `نجم: ${senderAccount}`,
       amount: rechargeAmount,
       receiptImage: 'sent_via_whatsapp'
     });
@@ -264,7 +265,7 @@ export default function ProfileTab({
       return;
     }
     if (!senderAccount.trim()) {
-      setRechargeError('يرجى كتابة رقم الحساب الكريمي أولاً لإنشاء رسالة واتساب.');
+      setRechargeError(rechargeTransferType === 'kuraimi' ? 'يرجى كتابة رقم حساب الكريمي أولاً لإنشاء رسالة واتساب.' : 'يرجى كتابة رقم مرجع حوالة النجم أولاً لإنشاء رسالة واتساب.');
       return;
     }
     if (rechargeAmount <= 0) {
@@ -272,13 +273,17 @@ export default function ProfileTab({
       return;
     }
 
+    const transferDetailsText = rechargeTransferType === 'kuraimi'
+      ? `🏦 *رقم حساب الكريمي (أو رقم الحوالة):* ${senderAccount}`
+      : `⭐ *رقم مرجع حوالة النجم:* ${senderAccount}\n👤 *مستلم حوالات النجم المعتمد:* ${adminSettings.najmReceiverName || 'روح أحمد علي'}`;
+
     const messageText = `🌸 *طلب شحن رصيد جديد في متجر أم روح* 🌸
 
 👤 *صاحب الحساب:* ${user.name}
 📞 *رقم هاتف الحساب:* ${user.phone}
 
 👤 *الاسم للمرسل المحول:* ${senderName}
-🏦 *رقم حساب الكريمي (أو رقم الحوالة):* ${senderAccount}
+${transferDetailsText}
 💰 *المبلغ المطلوب شحنه:* ${rechargeAmount} ريال يمني جديد
 
 ---
@@ -587,14 +592,57 @@ export default function ProfileTab({
                 </h3>
               </div>
 
-              <div className="bg-blue-50/50 dark:bg-gray-800/60 p-3.5 rounded-2xl border border-blue-100/50 text-[10px] text-blue-800 dark:text-blue-400 leading-relaxed font-semibold">
-                ℹ️ لشحن رصيد المحفظة الإلكترونية الخاصة بك، يرجى القيام بتحويل المبلغ المطلوب إلى حساب المتجر المعتمد لهذه العملة أدناه، ثم كتابة بيانات الإرسال وإرفاق الإشعار للتغذية المباشرة خلال دقائق!
-                <div className="mt-2 p-2 bg-amber-500/5 dark:bg-amber-500/10 rounded-lg text-center font-bold text-amber-800 dark:text-amber-400 space-y-0.5">
-                  <div>🏦 {activeBank.bankName}</div>
-                  <div className="text-xs font-black">الحساب: {activeBank.accountNumber}</div>
-                  <div className="text-[9px] text-gray-500 dark:text-gray-400">باسم: {activeBank.accountName}</div>
-                </div>
+              {/* Sub-tabs for transfer types */}
+              <div className="flex border border-amber-100/40 dark:border-gray-800 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRechargeTransferType('kuraimi');
+                    setSenderAccount('');
+                  }}
+                  className={`flex-1 py-2 text-center text-[11px] font-black transition-all ${
+                    rechargeTransferType === 'kuraimi'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-gray-50 dark:bg-gray-800 text-gray-500 hover:text-gray-750'
+                  }`}
+                >
+                  🏦 حساب الكريمي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRechargeTransferType('najm');
+                    setSenderAccount('');
+                  }}
+                  className={`flex-1 py-2 text-center text-[11px] font-black transition-all ${
+                    rechargeTransferType === 'najm'
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-gray-50 dark:bg-gray-800 text-gray-500 hover:text-gray-750'
+                  }`}
+                >
+                  ⭐ حوالة النجم وغيرها
+                </button>
               </div>
+
+              {rechargeTransferType === 'kuraimi' ? (
+                <div className="bg-blue-50/50 dark:bg-gray-800/60 p-3.5 rounded-2xl border border-blue-100/50 text-[10px] text-blue-800 dark:text-blue-400 leading-relaxed font-semibold">
+                  ℹ️ لشحن رصيد المحفظة الإلكترونية الخاصة بك، يرجى القيام بتحويل المبلغ المطلوب إلى حساب الكريمي الخاص بالمتجر أدناه:
+                  <div className="mt-2 p-2 bg-amber-500/5 dark:bg-amber-500/10 rounded-lg text-center font-bold text-amber-800 dark:text-amber-400 space-y-0.5">
+                    <div>🏦 الكريمي المميز</div>
+                    <div className="text-xs font-black">الحساب: {adminSettings.kuraimiAccountNumber || '967739563915'}</div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400">باسم: {adminSettings.kuraimiAccountName || 'أم روح'}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-amber-500/5 p-3.5 rounded-2xl border border-amber-200/50 text-[10px] text-amber-900 dark:text-amber-300 leading-relaxed font-semibold space-y-2">
+                  ℹ️ لشحن رصيد المحفظة الإلكترونية الخاصة بك، يرجى إرسال حوالة بكامل المبلغ المطلوب عبر <span className="font-extrabold text-amber-850">شبكة النجم أو أي شبكة صرافة وحوالات أخرى</span> إلى اسم المستلم أدناه:
+                  <div className="mt-2 p-2 bg-amber-500/10 rounded-lg text-center font-bold text-amber-800 dark:text-amber-400 space-y-0.5">
+                    <div>⭐ شبكة النجم أو أي شبكة أخرى</div>
+                    <div className="text-xs font-black">الاسم رباعياً: {adminSettings.najmReceiverName || 'روح أحمد علي'}</div>
+                    <div className="text-[9px] text-gray-500 dark:text-gray-400">حالة الخدمة: معتمد ومباشر (يمكنك التحويل من أي صراف) ⚡</div>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={handleRechargeSubmit} className="space-y-4">
                 {rechargeSuccess && (
@@ -626,13 +674,15 @@ export default function ProfileTab({
 
                 {/* Sender Account */}
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-600 dark:text-gray-300 block">رقم حساب الكريمي (أو رقم الحوالة):</label>
+                  <label className="text-xs font-bold text-gray-600 dark:text-gray-300 block">
+                    {rechargeTransferType === 'kuraimi' ? 'رقم حساب الكريمي المرسل منه (أو رقم الحوالة):' : 'رقم مرجع حوالة النجم (رقم الحوالة المكون من أرقام):'}
+                  </label>
                   <input
                     id="recharge-sender-account"
                     type="text"
                     value={senderAccount}
                     onChange={(e) => setSenderAccount(e.target.value)}
-                    placeholder="رقم الحساب أو رقم المرجع"
+                    placeholder={rechargeTransferType === 'kuraimi' ? 'مثال: 1234567' : 'مثال: 987654321'}
                     required
                     className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-medium text-right"
                   />
