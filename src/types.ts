@@ -24,6 +24,7 @@ export interface Category {
   name: string;
   image: string;
   productCount: number;
+  sortOrder?: number;
 }
 
 export interface PropertyDefinition {
@@ -77,7 +78,7 @@ export interface Order {
   currency: Currency;
   createdAt: string;
   status: OrderStatus;
-  paymentMethod: 'al_kuraimi' | 'gift_wallet' | 'recharge_wallet'; // al_kuraimi, paid using Um Rouh gifts, or paid using recharged wallet
+  paymentMethod: 'al_kuraimi' | 'gift_wallet' | 'recharge_wallet' | 'najm'; // al_kuraimi, paid using Um Rouh gifts, paid using recharged wallet, or Najm transfer
   checkoutVia?: 'app' | 'whatsapp';
 }
 
@@ -128,6 +129,9 @@ export interface AdminSettings {
   androidDownloadUrl?: string; // Add Android App Download Link
   whatsappNumber?: string; // Add WhatsApp Number field
   currentAppUrl?: string; // Dynamic app updates / OTA URL
+  kuraimiAccountName?: string; // اسم صاحب الحساب لكريمي
+  kuraimiAccountNumber?: string; // رقم الحساب لكريمي
+  najmReceiverName?: string; // اسم مستلم حوالات النجم
 }
 
 export interface OfferImage {
@@ -157,6 +161,7 @@ export interface Notification {
   createdAt: string;
   isRead: boolean;
   image?: string; // Attach item thumbnail or banner image
+  productId?: string; // Deep link to product details
 }
 
 export interface DeliveryLocation {
