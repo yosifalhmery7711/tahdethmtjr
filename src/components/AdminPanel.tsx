@@ -27,7 +27,8 @@ import {
   AlertCircle,
   Printer,
   MapPin,
-  TrendingUp
+  TrendingUp,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -84,6 +85,8 @@ export default function AdminPanel({
   const [code, setCode] = useState(adminCode);
   const [offerImages, setOfferImages] = useState<string[]>([]);
   const [locations, setLocations] = useState<DeliveryLocation[]>([]);
+  const [adminTickerTexts, setAdminTickerTexts] = useState<string[]>(() => Database.getTickerTexts());
+  const [newTickerInput, setNewTickerInput] = useState('');
 
   // Google Auth & Drive States
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
@@ -151,6 +154,7 @@ export default function AdminPanel({
     setAdvisor(Database.getAdvisorSettings());
     setOfferImages(Database.getOffersImages());
     setLocations(Database.getLocations());
+    setAdminTickerTexts(Database.getTickerTexts());
   };
 
   useEffect(() => {
@@ -229,6 +233,10 @@ export default function AdminPanel({
   const [whatsappNumber, setWhatsappNumber] = useState(adminSettingsObj.whatsappNumber || '967739563915');
   const [currentAppUrl, setCurrentAppUrl] = useState(adminSettingsObj.currentAppUrl || '');
 
+  const [kuraimiAccountName, setKuraimiAccountName] = useState(adminSettingsObj.kuraimiAccountName || 'أم روح');
+  const [kuraimiAccountNumber, setKuraimiAccountNumber] = useState(adminSettingsObj.kuraimiAccountNumber || '967739563915');
+  const [najmReceiverName, setNajmReceiverName] = useState(adminSettingsObj.najmReceiverName || 'روح أحمد علي');
+
   // Exchange rates configuration
   const [yerOldFactor, setYerOldFactor] = useState(rates.yerOldFactor);
   const [sarFactor, setSarFactor] = useState(rates.sarFactor);
@@ -249,7 +257,10 @@ export default function AdminPanel({
       ],
       androidDownloadUrl: androidApkUrl.trim(),
       whatsappNumber: whatsappNumber.trim(),
-      currentAppUrl: currentAppUrl.trim()
+      currentAppUrl: currentAppUrl.trim(),
+      kuraimiAccountName: kuraimiAccountName.trim(),
+      kuraimiAccountNumber: kuraimiAccountNumber.trim(),
+      najmReceiverName: najmReceiverName.trim()
     };
     
     Database.saveAdminSettings(updatedAdminSettings);
@@ -268,6 +279,9 @@ export default function AdminPanel({
     const updatedRates = { yerOldFactor: Number(yerOldFactor), sarFactor: Number(sarFactor) };
     Database.saveExchangeRate(updatedRates);
     onRatesUpdate(updatedRates);
+
+    // 4. Save News Ticker texts
+    Database.saveTickerTexts(adminTickerTexts);
 
     showToast('تم حفظ الإعدادات العامة والحسابات البنكية فوراً! ✅');
     reloadData();
@@ -350,6 +364,7 @@ export default function AdminPanel({
   const [newCatName, setNewCatName] = useState('');
   const [newCatCode, setNewCatCode] = useState('');
   const [newCatImage, setNewCatImage] = useState('');
+  const [newCatSortOrder, setNewCatSortOrder] = useState<string>('0');
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
   const handleAddCategorySubmit = (e: React.FormEvent) => {
@@ -357,12 +372,14 @@ export default function AdminPanel({
     if (!newCatName || !newCatCode || !newCatImage) return;
 
     const directImage = getDirectImageUrl(newCatImage);
+    const orderNum = Number(newCatSortOrder) || 0;
 
     if (editingCategory) {
       Database.saveCategory({
         ...editingCategory,
         name: newCatName.trim(),
-        image: directImage
+        image: directImage,
+        sortOrder: orderNum
       });
       setEditingCategory(null);
       showToast('تم تعديل الفئة بنجاح! 📂');
@@ -371,7 +388,8 @@ export default function AdminPanel({
         id: newCatCode.trim().toUpperCase(),
         name: newCatName.trim(),
         image: directImage,
-        productCount: 0
+        productCount: 0,
+        sortOrder: orderNum
       });
       showToast('تمت إضافة فئة جديدة بنجاح! 📂');
     }
@@ -379,6 +397,7 @@ export default function AdminPanel({
     setNewCatName('');
     setNewCatCode('');
     setNewCatImage('');
+    setNewCatSortOrder('0');
     reloadData();
   };
 
@@ -387,6 +406,7 @@ export default function AdminPanel({
     setNewCatName(cat.name);
     setNewCatCode(cat.id);
     setNewCatImage(cat.image);
+    setNewCatSortOrder(String(cat.sortOrder || 0));
   };
 
   const handleCancelCategoryEdit = () => {
@@ -394,6 +414,7 @@ export default function AdminPanel({
     setNewCatName('');
     setNewCatCode('');
     setNewCatImage('');
+    setNewCatSortOrder('0');
   };
 
   const handleDeleteCategory = (categoryId: string) => {
@@ -435,6 +456,7 @@ export default function AdminPanel({
   const [prodImages, setProdImages] = useState<string[]>([]);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [uploadingProdImage, setUploadingProdImage] = useState(false);
+  const [adminProdSearch, setAdminProdSearch] = useState('');
 
   // Available attributes checkboxes
   const [activeProperties, setActiveProperties] = useState<Record<string, boolean>>({
@@ -638,11 +660,12 @@ export default function AdminPanel({
       Database.addNotification({
         id: 'NOTIF_NEW_PROD_' + savedProd.id + '_' + Date.now(),
         userId: '', // public broadcast
-        title: `📢 صنف جديد متوفر الآن: ${savedProd.name}`,
-        message: `${savedProd.description || 'تصفحي الصنف المميّز الجديد لدينا واطلبيه بأفضل سعر ممكن فوراً!'}\n\nمتوفر الآن بجودة ممتازة في متجر أم روح 🌸`,
+        title: `متجر أم روح 🌸 - صنف جديد: ${savedProd.name}`,
+        message: `💰 السعر: ${savedProd.priceYERNew} ر.ي ج\n${savedProd.description ? (savedProd.description.length > 80 ? savedProd.description.substring(0, 80) + '...' : savedProd.description) : 'تصفحي الصنف المميّز الجديد لدينا واطلبيه بأفضل سعر ممكن فوراً!'} (انقري لمشاهدة التفاصيل)`,
         createdAt: new Date().toISOString(),
         isRead: false,
-        image: savedProd.images && savedProd.images[0] ? savedProd.images[0] : undefined
+        image: savedProd.images && savedProd.images[0] ? savedProd.images[0] : undefined,
+        productId: savedProd.id
       });
     }
 
@@ -1155,7 +1178,7 @@ export default function AdminPanel({
   };
 
   return (
-    <div className="bg-amber-50/10 dark:bg-gray-950 min-h-screen pb-32 pt-5">
+    <div className="fixed inset-0 overflow-y-auto bg-amber-50/10 dark:bg-gray-950 pb-32 pt-5 overscroll-contain touch-pan-y select-text z-[40]">
       {/* Custom Confirmation Dialog */}
       <AnimatePresence>
         {confirmModal && (
@@ -1344,6 +1367,77 @@ export default function AdminPanel({
                   </div>
                 </div>
 
+                {/* News Ticker Config */}
+                <div className="border-t border-dashed border-amber-100 dark:border-gray-800 pt-4 space-y-4 text-right">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-extrabold text-amber-900 dark:text-amber-400">إعدادات شريط الأخبار المتحرك 📢</h4>
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold">يتم الفصل بوردة المتجر 🌸</span>
+                  </div>
+
+                  {/* Add ticker text input */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newTickerInput}
+                      onChange={(e) => setNewTickerInput(e.target.value)}
+                      placeholder="اكتب إعلان أو تنبيه جديد..."
+                      className="flex-1 px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-semibold"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (newTickerInput.trim()) {
+                            setAdminTickerTexts([...adminTickerTexts, newTickerInput.trim()]);
+                            setNewTickerInput('');
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newTickerInput.trim()) {
+                          setAdminTickerTexts([...adminTickerTexts, newTickerInput.trim()]);
+                          setNewTickerInput('');
+                        }
+                      }}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      إضافة ➕
+                    </button>
+                  </div>
+
+                  {/* Ticker texts list */}
+                  {adminTickerTexts.length > 0 ? (
+                    <div className="space-y-2 max-h-48 overflow-y-auto border border-amber-50 dark:border-gray-800 p-2 rounded-xl bg-amber-50/10">
+                      {adminTickerTexts.map((txt, idx) => (
+                        <div 
+                          key={idx} 
+                          className="flex items-center justify-between gap-3 bg-white dark:bg-gray-900 px-3 py-2 rounded-lg border border-amber-100/50 dark:border-gray-800 shadow-xs"
+                        >
+                          <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 text-right leading-relaxed flex-1">
+                            {txt}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdminTickerTexts(adminTickerTexts.filter((_, i) => i !== idx));
+                            }}
+                            className="text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 p-1.5 rounded-lg transition shrink-0 cursor-pointer"
+                            title="حذف"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-4 bg-gray-50 dark:bg-gray-800/40 rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
+                      <p className="text-[10px] text-gray-400 font-bold">لا توجد نصوص حالية في شريط الأخبار.</p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Advisor customization */}
                 <div className="border-t border-dashed border-amber-100 pt-4 space-y-4">
                   <h4 className="text-xs font-extrabold text-amber-900">تعديل بيانات المستشارة روح</h4>
@@ -1516,6 +1610,60 @@ export default function AdminPanel({
                   </div>
                 </div>
 
+                {/* Kuraimi & Najm Direct Transfer customization */}
+                <div className="border-t border-dashed border-amber-100 dark:border-gray-800 pt-4 space-y-4 text-right">
+                  <h4 className="text-xs font-extrabold text-amber-950 dark:text-amber-300">إعدادات بوابات الدفع (حساب الكريمي وحوالة النجم وغيرها)</h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Kuraimi Details */}
+                    <div className="p-3 bg-amber-500/5 dark:bg-amber-500/10 rounded-2xl border border-amber-100/30 dark:border-gray-800 space-y-2">
+                      <span className="text-[10px] font-black text-amber-800 dark:text-amber-400 block">البيانات الخاصة بتبويب "حساب كريمي":</span>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-[9px] font-bold text-gray-500 block mb-0.5">اسم صاحب الحساب لكريمي:</label>
+                          <input
+                            type="text"
+                            value={kuraimiAccountName}
+                            onChange={(e) => setKuraimiAccountName(e.target.value)}
+                            placeholder="صاحب حساب كريمي المعتمد..."
+                            className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-lg text-[10px]"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] font-bold text-gray-500 block mb-0.5">رقم الحساب لكريمي:</label>
+                          <input
+                            type="text"
+                            value={kuraimiAccountNumber}
+                            onChange={(e) => setKuraimiAccountNumber(e.target.value)}
+                            placeholder="رقم الحساب أو الجوال المرتبط بالكريمي..."
+                            className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-lg text-[10px]"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Najm Details */}
+                    <div className="p-3 bg-amber-500/5 dark:bg-amber-500/10 rounded-2xl border border-amber-100/30 dark:border-gray-800 space-y-2">
+                      <span className="text-[10px] font-black text-amber-800 dark:text-amber-400 block">البيانات الخاصة بتبويب "حوالة النجم وغيرها":</span>
+                      <div className="space-y-2">
+                        <div>
+                          <label className="text-[9px] font-bold text-gray-500 block mb-0.5">اسم مستلم حوالات النجم والشبكات الأخرى المعتمد:</label>
+                          <input
+                            type="text"
+                            value={najmReceiverName}
+                            onChange={(e) => setNajmReceiverName(e.target.value)}
+                            placeholder="الاسم الكامل رباعياً للمستلم..."
+                            className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-lg text-[10px]"
+                          />
+                        </div>
+                        <div className="text-[9px] text-gray-400 font-medium leading-relaxed pt-1">
+                          💡 يمكن تعديل هذه البيانات في أي وقت، وستظهر فوراً للعملاء كبيانات سداد معتمدة عند إرسال طلب أو شحن محفظتهم (حيث يعلم العميل أنه يستطيع الإرسال عبر أي شبكة حوالات وصرافة للاسم المحدد).
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Store WhatsApp Number */}
                 <div className="border-t border-dashed border-amber-100 dark:border-gray-800 pt-4 space-y-2 text-right">
                   <h4 className="text-xs font-extrabold text-amber-950 dark:text-amber-300">رقم واتساب المتجر (للتواصل وتلقي الطلبات)</h4>
@@ -1682,7 +1830,7 @@ export default function AdminPanel({
                 إدارة عناوين التوصيل ورسوم الشحن 📍
               </h3>
 
-               <form onSubmit={handleSaveLocation} className="space-y-4 text-right">
+              <form onSubmit={handleSaveLocation} className="space-y-4 text-right">
                 <div className="bg-amber-500/5 p-4 rounded-2xl border border-amber-100/30 space-y-4">
                   <span className="text-[10px] font-black text-amber-900 dark:text-amber-300 block">حدد منطقة من العناوين التي سجلها العملاء في المتجر أو أدخل عنواناً مخصصاً:</span>
                   
@@ -1877,6 +2025,19 @@ export default function AdminPanel({
                   />
                 </div>
 
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block">ترتيب عرض الفئة (رقم لترتيب الفئات بعد خيار الكل):</label>
+                  <input
+                    id="admin-cat-sortorder"
+                    type="number"
+                    value={newCatSortOrder}
+                    onChange={(e) => setNewCatSortOrder(e.target.value)}
+                    placeholder="مثال: 1 لتبدأ أول فئة، أو 2، أو 3"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-bold"
+                  />
+                </div>
+
                 <button
                   id="admin-cat-submit"
                   type="submit"
@@ -1898,6 +2059,7 @@ export default function AdminPanel({
                         <div className="min-w-0">
                           <h4 className="text-xs font-extrabold text-gray-900 dark:text-white truncate">{c.name}</h4>
                           <span className="text-[9px] font-bold text-gray-400 block truncate">{c.id} ({c.productCount} صنف)</span>
+                          <span className="text-[9px] font-extrabold text-amber-600 dark:text-amber-400 block">ترتيب العرض: {c.sortOrder || 0}</span>
                         </div>
                       </div>
                       <div className="flex gap-1.5 border-t border-amber-500/5 dark:border-gray-800/60 pt-2 justify-end">
@@ -2255,10 +2417,33 @@ export default function AdminPanel({
 
               {/* Products Directory */}
               <div className="border-t border-amber-100 dark:border-gray-800 pt-6 space-y-4 text-right">
-                <span className="text-[10px] font-black text-gray-400 block">الأصناف المدرجة بالمتجر حالياً ({products.length}):</span>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                  <span className="text-[10px] font-black text-gray-400 block">الأصناف المدرجة بالمتجر حالياً ({products.length}):</span>
+                  
+                  {/* Modern Search input */}
+                  <div className="relative w-full sm:w-72">
+                    <input
+                      type="text"
+                      value={adminProdSearch}
+                      onChange={(e) => setAdminProdSearch(e.target.value)}
+                      placeholder="🔍 ابحثي باسم الصنف أو الكود أو الفئة..."
+                      className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-850 text-gray-900 dark:text-white border border-amber-100 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500 text-xs font-semibold text-right"
+                    />
+                  </div>
+                </div>
                 
                 <div className="flex flex-col gap-3">
-                  {products.map(p => (
+                  {products
+                    .filter(p => {
+                      if (!adminProdSearch.trim()) return true;
+                      const term = adminProdSearch.toLowerCase().trim();
+                      return (
+                        p.name.toLowerCase().includes(term) ||
+                        p.code.toLowerCase().includes(term) ||
+                        (p.categoryName && p.categoryName.toLowerCase().includes(term))
+                      );
+                    })
+                    .map(p => (
                     <div key={p.id} className="p-3 bg-white dark:bg-gray-900 border border-amber-100/30 dark:border-gray-800 rounded-2xl flex flex-col sm:flex-row justify-between sm:items-center gap-3 text-right shadow-sm transition hover:border-amber-200/50">
                       <div className="flex items-center gap-3 min-w-0">
                         <img src={p.images[0]} alt={p.name} className="w-12 h-12 rounded-xl object-cover bg-white p-1 shrink-0 border border-amber-100/30" />
