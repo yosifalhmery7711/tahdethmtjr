@@ -121,25 +121,12 @@ export default function App() {
     }
   }, [activeTab]);
 
-  // Automatically trigger silent sync and random product shuffling on navigation transitions
+  // Shuffle products list randomly when products change
   useEffect(() => {
-    // 1. Silent sync from Firestore in the background
-    const triggerSilentSync = async () => {
-      try {
-        await Database.syncFromFirestore(() => {
-          handleReloadAll();
-        });
-      } catch (e) {
-        console.warn("Silent background Firestore sync failed:", e);
-      }
-    };
-    triggerSilentSync();
-
-    // 2. Shuffle products list randomly
     if (products.length > 0) {
       setShuffledProducts([...products].sort(() => Math.random() - 0.5));
     }
-  }, [activeTab, selectedProduct?.id, selectedCategoryInTab?.id, products.length]);
+  }, [products.length]);
 
   const [cart, setCart] = useState<OrderItem[]>(() => {
     try {
@@ -252,7 +239,7 @@ export default function App() {
 
         // Hide welcome overlay on successful sync
         setShowWelcome(false);
-      });
+      }, true);
     } catch (e) {
       console.warn("Firestore sync failed:", e);
       setIsSyncing(false);
