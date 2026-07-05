@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Copy, Check, ExternalLink, Globe, ShieldAlert } from 'lucide-react';
+import { copyToClipboard } from '../utils';
 
 interface UnauthorizedDomainModalProps {
   isOpen: boolean;
@@ -17,17 +18,21 @@ export const UnauthorizedDomainModal: React.FC<UnauthorizedDomainModalProps> = (
   const [copiedDomain, setCopiedDomain] = useState(false);
   const [copiedWildcard, setCopiedWildcard] = useState(false);
 
-  const handleCopyDomain = () => {
-    navigator.clipboard.writeText(currentDomain);
-    setCopiedDomain(true);
-    setTimeout(() => setCopiedDomain(false), 2000);
+  const handleCopyDomain = async () => {
+    const success = await copyToClipboard(currentDomain);
+    if (success) {
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    }
   };
 
-  const handleCopyWildcard = () => {
+  const handleCopyWildcard = async () => {
     // Standard run.app wildcard configuration
-    navigator.clipboard.writeText('run.app');
-    setCopiedWildcard(true);
-    setTimeout(() => setCopiedWildcard(false), 2000);
+    const success = await copyToClipboard('run.app');
+    if (success) {
+      setCopiedWildcard(true);
+      setTimeout(() => setCopiedWildcard(false), 2000);
+    }
   };
 
   return (
