@@ -115,130 +115,9 @@ const DEFAULT_USER: User = {
   isRegistered: false
 };
 
-const DEFAULT_CATEGORIES: Category[] = [
-  {
-    id: 'CAT_KITCHEN',
-    name: 'الأدوات المنزلية',
-    image: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&q=80&w=600',
-    productCount: 2,
-  },
-  {
-    id: 'CAT_CLOTHES',
-    name: 'الملابس',
-    image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=600',
-    productCount: 1,
-  },
-  {
-    id: 'CAT_TOYS',
-    name: 'الألعاب',
-    image: 'https://images.unsplash.com/photo-1559251606-c623743a6d76?auto=format&fit=crop&q=80&w=600',
-    productCount: 1,
-  },
-  {
-    id: 'CAT_COSMETICS',
-    name: 'مستحضرات التجميل',
-    image: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&q=80&w=600',
-    productCount: 1,
-  }
-];
+const DEFAULT_CATEGORIES: Category[] = [];
 
-const DEFAULT_PRODUCTS: Product[] = [
-  {
-    id: 'PROD_SOAP',
-    code: 'SOAP-FR-01',
-    name: 'صابونة بخلاصة الفراولة للبشرة [مضاد للتجاعيد، لحب الشباب وتنقية البشرة] ماركة (Madam Ranee)',
-    categoryId: 'CAT_COSMETICS',
-    categoryName: 'مستحضرات التجميل',
-    description: '*صابونة طبيعية* مميزة بخلاصة الفراولة الفواحة 🍓. تساعد على شد البشرة وتنقيتها من حب الشباب وإعطائها ملمساً ناعماً وإشراقاً طبيعياً دائمًا ✨.\n\nتدعم خصائص التبييض ومضادة للتجاعيد لبشرة أكثر نضارة وشباباً يومياً.',
-    priceYERNew: 550,
-    images: [
-      'https://images.unsplash.com/photo-1607006342440-b7eb93c04d03?auto=format&fit=crop&q=80&w=600',
-      'https://images.unsplash.com/photo-1546554137-f86b9593a222?auto=format&fit=crop&q=80&w=600'
-    ],
-    properties: [
-      { name: 'الوحدة', options: ['قطعة واحدة', 'طقم 3 حبات'] },
-      { name: 'المقاس', options: ['صغير 100g', 'كبير 150g'] }
-    ],
-    isOnOffer: false,
-    rating: 4.8
-  },
-  {
-    id: 'PROD_DRESS',
-    code: 'CLOTH-DR-02',
-    name: 'فستان بناتي كاروهات كلاسيكي دافئ',
-    categoryId: 'CAT_CLOTHES',
-    categoryName: 'الملابس',
-    description: 'فستان أطفال كاروهات بتصميم ربيعي دافئ وأنيق 👗.\nمصنوع من *القطن الممتاز* الناعم لحماية بشرة طفلتك وتوفير الراحة القصوى لها في الحركة والألعاب.',
-    priceYERNew: 4500,
-    images: [
-      'https://images.unsplash.com/photo-1518831959646-742c3a14ebf7?auto=format&fit=crop&q=80&w=600',
-      'https://images.unsplash.com/photo-1621184455862-c163dfb30e0f?auto=format&fit=crop&q=80&w=600'
-    ],
-    properties: [
-      { name: 'المقاس', options: ['سنتين', '3 سنوات', '4 سنوات', '5 سنوات'] },
-      { name: 'اللون', options: ['أحمر كاروهات', 'أصفر مشمش'] }
-    ],
-    isOnOffer: true,
-    offerPriceNew: 3500,
-    offerOldPrice: 4500,
-    rating: 4.9
-  },
-  {
-    id: 'PROD_TEA_SET',
-    code: 'KIT-TS-03',
-    name: 'طقم شاي سيراميك وردي قلوب فاخر 6 قطع',
-    categoryId: 'CAT_KITCHEN',
-    categoryName: 'الأدوات المنزلية',
-    description: 'طقم شاي راقي متكامل للضيافة المنزلية المميزة ☕.\nيأتي برسمة *القلوب الوردية الرقيقة* مع ملاعق تحريك مطلية بالذهب ومقاومة للحرارة العالية والكسر.',
-    priceYERNew: 8500,
-    images: [
-      'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&q=80&w=600'
-    ],
-    properties: [
-      { name: 'اللون', options: ['وردي قلوب', 'أبيض كلاسيكي فاخر'] },
-      { name: 'الحجم', options: ['حجم معياري 250مل'] }
-    ],
-    isOnOffer: false,
-    rating: 5.0
-  },
-  {
-    id: 'PROD_TEDDY',
-    code: 'TOY-TD-04',
-    name: 'دب تيدي مخملي كبير وناعم للغاية للأطفال',
-    categoryId: 'CAT_TOYS',
-    categoryName: 'الألعاب',
-    description: 'دبدوب مخملي لطيف وناعم جداً، مصنوع من مواد آمنة وصديقة للبيئة للأطفال 🧸.\nمثالي *كهدية عيد ميلاد* أو مرافقة طفلك في أوقات النوم والراحة لتوفير شعور بالألفة والدفء.',
-    priceYERNew: 2500,
-    images: [
-      'https://images.unsplash.com/photo-1559251606-c623743a6d76?auto=format&fit=crop&q=80&w=600'
-    ],
-    properties: [
-      { name: 'الحجم', options: ['وسط 30سم', 'كبير 50سم', 'عملاق 80سم'] },
-      { name: 'اللون', options: ['بني كلاسيكي', 'وردي فاتح'] }
-    ],
-    isOnOffer: true,
-    offerPriceNew: 2000,
-    offerOldPrice: 2500,
-    rating: 4.7
-  },
-  {
-    id: 'PROD_PANS',
-    code: 'KIT-PN-05',
-    name: 'طقم مقالي جرانيت غير لاصقة 3 قطع بمقابض خشبية',
-    categoryId: 'CAT_KITCHEN',
-    categoryName: 'الأدوات المنزلية',
-    description: 'طقم مقالي جرانيت صحية وممتازة للتوزيع الحراري المتساوي في الطهي 🍳.\nمقاومة للالتصاق والخدش وسهلة الغسل جداً، مجهزة بمقابض مريحة عازلة للحرارة بنقشة الخشب الطبيعي الدافئ.',
-    priceYERNew: 12000,
-    images: [
-      'https://images.unsplash.com/photo-1584269600464-37b1b58a9fe7?auto=format&fit=crop&q=80&w=600'
-    ],
-    properties: [
-      { name: 'اللون', options: ['رمادي صخري', 'وردي باستيل'] }
-    ],
-    isOnOffer: false,
-    rating: 4.6
-  }
-];
+const DEFAULT_PRODUCTS: Product[] = [];
 
 const DEFAULT_EXCHANGE_RATE: ExchangeRate = {
   yerOldFactor: 2.9, // Price_Old = Price_New / 2.9 (round to higher 100)
@@ -261,14 +140,13 @@ const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   ],
   androidDownloadUrl: 'https://archive.org/download/ruh-store/RuhStore.apk',
   whatsappNumber: '967739563915',
-  currentAppUrl: ''
+  currentAppUrl: '',
+  kuraimiAccountName: 'أم روح',
+  kuraimiAccountNumber: '967739563915',
+  najmReceiverName: 'روح أحمد علي'
 };
 
-const DEFAULT_OFFERS_IMAGES: string[] = [
-  'https://images.unsplash.com/photo-1518831959646-742c3a14ebf7?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&q=80&w=800',
-  'https://images.unsplash.com/photo-1559251606-c623743a6d76?auto=format&fit=crop&q=80&w=800'
-];
+const DEFAULT_OFFERS_IMAGES: string[] = [];
 
 const DEFAULT_NOTIFICATIONS: Notification[] = [
   {
@@ -314,7 +192,8 @@ export class Database {
     LOCATIONS: 'amrwh_locations',
     TARGETED_NOTIFICATIONS: 'amrwh_targeted_notifications',
     TARGETED_GIFTS: 'amrwh_targeted_gifts',
-    TARGETED_GIFT_LOGS: 'amrwh_targeted_gift_logs'
+    TARGETED_GIFT_LOGS: 'amrwh_targeted_gift_logs',
+    TICKER_TEXTS: 'amrwh_ticker_texts'
   };
 
   static initialize(): void {
@@ -363,6 +242,13 @@ export class Database {
     if (!localStorage.getItem(this.KEYS.TARGETED_NOTIFICATIONS)) saveToStorage(this.KEYS.TARGETED_NOTIFICATIONS, []);
     if (!localStorage.getItem(this.KEYS.TARGETED_GIFTS)) saveToStorage(this.KEYS.TARGETED_GIFTS, []);
     if (!localStorage.getItem(this.KEYS.TARGETED_GIFT_LOGS)) saveToStorage(this.KEYS.TARGETED_GIFT_LOGS, []);
+    if (!localStorage.getItem(this.KEYS.TICKER_TEXTS)) {
+      saveToStorage(this.KEYS.TICKER_TEXTS, [
+        'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
+        'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
+        'خصومات وعروض مميزة مستمرة على كافة الأقسام 🌟'
+      ]);
+    }
   }
 
   static seed(): void {
@@ -390,7 +276,8 @@ export class Database {
         notifSnap,
         tNotifSnap,
         tGiftsSnap,
-        tLogsSnap
+        tLogsSnap,
+        tickerSnap
       ] = await Promise.race([
         Promise.all([
           getDoc(doc(db, COLLECTIONS.SETTINGS, 'advisor')),
@@ -407,7 +294,8 @@ export class Database {
           getDocs(collection(db, COLLECTIONS.NOTIFICATIONS)),
           getDocs(collection(db, COLLECTIONS.TARGETED_NOTIFICATIONS)),
           getDocs(collection(db, COLLECTIONS.TARGETED_GIFTS)),
-          getDocs(collection(db, COLLECTIONS.TARGETED_GIFT_LOGS))
+          getDocs(collection(db, COLLECTIONS.TARGETED_GIFT_LOGS)),
+          getDocs(collection(db, COLLECTIONS.TICKER_TEXTS))
         ]),
         new Promise<any[]>((_, reject) => 
           setTimeout(() => reject(new Error('Firestore operation timeout (4000ms)')), 4000)
@@ -444,6 +332,32 @@ export class Database {
           exchangeRate: DEFAULT_EXCHANGE_RATE,
           offers: DEFAULT_OFFERS_IMAGES
         }).catch(err => console.warn('Non-blocking init write failed:', err));
+      }
+
+      // Process News Ticker Texts from the dedicated collection (table)
+      if (tickerSnap && !tickerSnap.empty) {
+        const tickerList: any[] = [];
+        tickerSnap.forEach(d => tickerList.push(d.data()));
+        tickerList.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+        const texts = tickerList.map(item => item.text).filter(Boolean);
+        if (texts.length > 0) {
+          saveToStorage(this.KEYS.TICKER_TEXTS, texts);
+        }
+      } else {
+        const defaultTicker = [
+          'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
+          'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
+          'خصومات وعروض مميز مستمرة على كافة الأقسام 🌟'
+        ];
+        defaultTicker.forEach((text, i) => {
+          setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
+            id: `ticker_${i}`,
+            text,
+            sortOrder: i,
+            createdAt: new Date().toISOString()
+          }).catch(() => {});
+        });
+        saveToStorage(this.KEYS.TICKER_TEXTS, defaultTicker);
       }
 
       // 2. Process Categories
@@ -725,7 +639,7 @@ export class Database {
     return cats.map(c => ({
       ...c,
       productCount: prods.filter(p => p.categoryId === c.id).length
-    }));
+    })).sort((a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999));
   }
 
   static saveCategory(category: Category): void {
@@ -861,6 +775,47 @@ export class Database {
   static saveOffersImages(images: string[]): void {
     saveToStorage(this.KEYS.OFFERS, images);
     setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { offers: images }, { merge: true }).catch(e => console.error("Firestore offers save error:", e));
+  }
+
+  // --- NEWS TICKER TEXTS ---
+  static getTickerTexts(): string[] {
+    this.initialize();
+    const texts = loadFromStorage<string[]>(this.KEYS.TICKER_TEXTS, []);
+    if (!texts || texts.length === 0) {
+      return [
+        'مرحباً بكم في متجر أم روح 🌸 منصتكم الأولى للتسوق للأسر المنتجة باليمن!',
+        'توصيل سريع ومضمون لكافة المحافظات اليمنية 🚚',
+        'خصومات وعروض مميزة مستمرة على كافة الأقسام 🌟'
+      ];
+    }
+    return texts;
+  }
+
+  static saveTickerTexts(texts: string[]): void {
+    const oldLength = loadFromStorage<string[]>(this.KEYS.TICKER_TEXTS, []).length;
+    saveToStorage(this.KEYS.TICKER_TEXTS, texts);
+    setDoc(doc(db, COLLECTIONS.SETTINGS, 'general'), { tickerTexts: texts }, { merge: true })
+      .catch(e => console.error("Firestore ticker texts save error:", e));
+
+    // Save to dedicated ticker_texts collection/table
+    try {
+      texts.forEach((text, i) => {
+        setDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`), {
+          id: `ticker_${i}`,
+          text: text,
+          sortOrder: i,
+          createdAt: new Date().toISOString()
+        }).catch(e => console.error("Error saving ticker doc:", e));
+      });
+      // Delete leftovers if list became smaller
+      if (oldLength > texts.length) {
+        for (let i = texts.length; i < oldLength + 10; i++) {
+          deleteDoc(doc(db, COLLECTIONS.TICKER_TEXTS, `ticker_${i}`)).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error("Firestore dedicated ticker collection write error:", e);
+    }
   }
 
   // --- GIFTS (UM ROUH GIFTS) ---
